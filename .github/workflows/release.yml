@@ -82,7 +82,6 @@ jobs:
           prerelease: false
 
   sync-to-gitee:
-    if: ${{ secrets.GITEE_TOKEN != '' }}
     needs: build
     runs-on: ubuntu-latest
     steps:

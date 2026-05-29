@@ -1,0 +1,194 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: linux
+          - platform: windows-latest
+            target: windows
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting version to: ${VERSION}"
+
+          # package.json
+          jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
+
+          # src-tauri/tauri.conf.json
+          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+
+          # src-tauri/Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install system dependencies (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libssl-dev \
+            librsvg2-dev \
+            libayatana-appindicator3-dev \
+            pkg-config
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Super Kafka ${{ github.ref_name }}"
+          releaseBody: "See the assets to download the installer for your platform."
+          releaseDraft: false
+          prerelease: false
+
+  sync-to-gitee:
+    if: ${{ secrets.GITEE_TOKEN != '' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get GitHub Release info
+        id: gh_release
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          # Wait for draft release to be fully created
+          sleep 10
+
+          # Get the release by tag (include drafts)
+          RELEASE_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases")
+
+          # Find the release matching this tag
+          RELEASE_ID=$(echo "$RELEASE_JSON" | jq -r ".[] | select(.tag_name==\"${TAG}\") | .id")
+          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+          echo "Found GitHub Release ID: ${RELEASE_ID}"
+
+      - name: Download GitHub Release assets
+        run: |
+          mkdir -p assets
+          ASSETS_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${{ steps.gh_release.outputs.release_id }}/assets")
+
+          echo "$ASSETS_JSON" | jq -r '.[] | "\(.id) \(.name)"' | while read -r id name; do
+            echo "Downloading: ${name}"
+            curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/octet-stream" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/assets/${id}" \
+              -o "assets/${name}"
+          done
+
+          echo "Downloaded assets:"
+          ls -lh assets/
+
+      - name: Create Gitee Release and upload assets
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+        run: |
+          TAG="${{ steps.gh_release.outputs.tag }}"
+          OWNER="${GITEE_OWNER}"
+          REPO="${GITEE_REPO}"
+
+          if [ -z "$OWNER" ] || [ -z "$REPO" ]; then
+            echo "GITEE_OWNER or GITEE_REPO is empty, skip sync"
+            exit 0
+          fi
+
+          # Create Gitee Release
+          RESPONSE=$(curl -s -X POST \
+            "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"access_token\": \"${GITEE_TOKEN}\",
+              \"tag_name\": \"${TAG}\",
+              \"target_commitish\": \"${GITHUB_SHA}\",
+              \"name\": \"Super Kafka ${TAG}\",
+              \"body\": \"See the assets to download the installer for your platform.\",
+              \"prerelease\": false
+            }")
+
+          RELEASE_ID=$(echo "$RESPONSE" | jq -r '.id')
+          echo "Created Gitee Release ID: ${RELEASE_ID}"
+
+          if [ "$RELEASE_ID" = "null" ] || [ -z "$RELEASE_ID" ]; then
+            echo "Failed to create Gitee Release:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          # Upload assets to Gitee Release
+          # Limit to 30MB due to cross-border network instability
+          MAX_SIZE=$((30 * 1024 * 1024))
+
+          # Sort files: Windows installers first, then others
+          FILES=$(ls assets/ 2>/dev/null | sort -t. -k1,1 | awk '
+            /\.(exe|msi|nsis)/ { win[NR]=$0; next }
+            { others[NR]=$0 }
+            END { for(i in win) print win[i]; for(i in others) print others[i] }
+          ')
+
+          for filename in $FILES; do
+            file="assets/${filename}"
+            [ -f "$file" ] || continue
+            filesize=$(stat -c%s "$file")
+            if [ "$filesize" -gt "$MAX_SIZE" ]; then
+              echo "Skipping ${filename} ($(( filesize / 1024 / 1024 ))MB exceeds 30MB limit)"
+              continue
+            fi
+            echo "Uploading to Gitee: ${filename} ($(( filesize / 1024 / 1024 ))MB)"
+            UPLOAD_RESPONSE=$(curl -s -S --retry 2 --retry-delay 5 \
+              -X POST \
+              "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${file}")
+            CURL_EXIT=$?
+            echo "$UPLOAD_RESPONSE"
+            if [ $CURL_EXIT -ne 0 ]; then
+              echo "Warning: Upload failed for ${filename} (curl exit code: ${CURL_EXIT})"
+            fi
+            echo ""
+          done
+
+          echo "Gitee Release sync completed!"

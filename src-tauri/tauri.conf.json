@@ -37,6 +37,20 @@
       "deb": {
         "depends": []
       }
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      },
+      "nsis": {
+        "languages": [
+          "English",
+          "SimpChinese"
+        ],
+        "displayLanguageSelector": true,
+        "installMode": "both",
+        "template": "nsis/installer.nsi"
+      }
     }
   },
   "plugins": {

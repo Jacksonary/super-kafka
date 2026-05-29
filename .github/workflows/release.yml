@@ -123,17 +123,10 @@ jobs:
       - name: Create Gitee Release and upload assets
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
-          GITEE_REPO: ${{ secrets.GITEE_REPO }}
         run: |
           TAG="${{ steps.gh_release.outputs.tag }}"
-          OWNER="${GITEE_OWNER}"
-          REPO="${GITEE_REPO}"
-
-          if [ -z "$OWNER" ] || [ -z "$REPO" ]; then
-            echo "GITEE_OWNER or GITEE_REPO is empty, skip sync"
-            exit 0
-          fi
+          OWNER="weiguoliu"
+          REPO="super-kafka"
 
           # Create Gitee Release
           RESPONSE=$(curl -s -X POST \

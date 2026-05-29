@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type * as T from "./types";
 
 // ─────────────────────────────────────────────────────────
@@ -140,7 +141,6 @@ const TOPICS_BY_CLUSTER: Record<string, T.TopicSummary[]> = {
   "cluster-3": [],
 };
 
-// Topic configs (shared template, per-topic overrides applied below)
 const DEFAULT_TOPIC_CONFIGS: T.TopicConfig[] = [
   { name: "cleanup.policy", value: "delete", is_default: true, is_read_only: false },
   { name: "retention.ms", value: "604800000", is_default: true, is_read_only: false },
@@ -173,23 +173,24 @@ function buildTopicDetail(topic: T.TopicSummary): T.TopicDetail {
     };
   });
 
-  // Slight customisations per-topic
   const configs: T.TopicConfig[] = DEFAULT_TOPIC_CONFIGS.map((c) => ({ ...c }));
   if (topic.name === "audit-log") {
     const r = configs.find((c) => c.name === "retention.ms");
-    if (r) { r.value = "2592000000"; r.is_default = false; }
+    if (r) {
+      r.value = "2592000000";
+      r.is_default = false;
+    }
   }
   if (topic.name.startsWith("dlq.")) {
     const r = configs.find((c) => c.name === "retention.ms");
-    if (r) { r.value = "1209600000"; r.is_default = false; }
+    if (r) {
+      r.value = "1209600000";
+      r.is_default = false;
+    }
   }
 
   return { name: topic.name, partitions, configs };
 }
-
-// ─────────────────────────────────────────────────────────
-// Mock data: messages
-// ─────────────────────────────────────────────────────────
 
 function buildMockMessages(topic: string, partitionFilter: number | null, limit: number): T.KafkaMessage[] {
   const samples: { value: unknown; encoding: T.MessageEncoding; compression: string }[] = [
@@ -227,10 +228,6 @@ function buildMockMessages(topic: string, partitionFilter: number | null, limit:
   }
   return out;
 }
-
-// ─────────────────────────────────────────────────────────
-// Mock data: consumer groups
-// ─────────────────────────────────────────────────────────
 
 const GROUPS_BY_CLUSTER: Record<string, T.ConsumerGroupSummary[]> = {
   "cluster-1": [
@@ -295,10 +292,6 @@ function buildGroupDetail(clusterId: string, groupId: string): T.ConsumerGroupDe
   };
 }
 
-// ─────────────────────────────────────────────────────────
-// Mock data: schema registry
-// ─────────────────────────────────────────────────────────
-
 const SCHEMAS_BY_CLUSTER: Record<string, T.SchemaSubject[]> = {
   "cluster-1": [
     { name: "user-events-value", version_count: 3, latest_version: 3, schema_type: "AVRO" },
@@ -338,10 +331,6 @@ const JSON_PAYMENT_TX = JSON.stringify({
   },
 }, null, 2);
 
-// ─────────────────────────────────────────────────────────
-// Mock data: kafka connect
-// ─────────────────────────────────────────────────────────
-
 const CONNECTORS_BY_CLUSTER: Record<string, T.ConnectorSummary[]> = {
   "cluster-1": [
     { name: "postgres-cdc-source", connector_type: "source", state: "RUNNING", task_count: 2, failed_tasks: 0, connector_class: "io.debezium.connector.postgresql.PostgresConnector" },
@@ -374,10 +363,10 @@ function buildConnectorDetail(clusterId: string, name: string): T.ConnectorDetai
 
   const config: Record<string, string> = summary
     ? {
-        "name": name,
+        name,
         "connector.class": summary.connector_class,
         "tasks.max": String(summary.task_count),
-        "topics": "user-events,order-updates",
+        topics: "user-events,order-updates",
         "key.converter": "org.apache.kafka.connect.storage.StringConverter",
         "value.converter": "io.confluent.connect.avro.AvroConverter",
         "value.converter.schema.registry.url": "http://localhost:8081",
@@ -396,10 +385,6 @@ function buildConnectorDetail(clusterId: string, name: string): T.ConnectorDetai
   };
 }
 
-// ─────────────────────────────────────────────────────────
-// Mock data: app config
-// ─────────────────────────────────────────────────────────
-
 let appConfig: T.AppConfig = {
   theme: "dark",
   language: "zh",
@@ -407,13 +392,7 @@ let appConfig: T.AppConfig = {
   max_message_display_bytes: 1_048_576,
 };
 
-// ─────────────────────────────────────────────────────────
-// API surface (mirrors plan/api.ts signatures)
-// ─────────────────────────────────────────────────────────
-
-export const api = {
-  // ── 集群管理 ─────────────────────────────────────────────
-
+const mockApi = {
   async listClusters(): Promise<T.ClusterConfig[]> {
     await sleep(50);
     return [...clusters];
@@ -436,10 +415,9 @@ export const api = {
     return { ok: true };
   },
 
-  async testConnection(_config: T.ClusterConfig, _password: string | null): Promise<T.TestConnectionResult> {
+  async testConnection(config: T.ClusterConfig, _password: string | null): Promise<T.TestConnectionResult> {
     await sleep(700);
-    // Mock: succeed unless name contains "fail"
-    const fail = _config.name.toLowerCase().includes("fail");
+    const fail = config.name.toLowerCase().includes("fail");
     if (fail) {
       return {
         success: false,
@@ -451,7 +429,7 @@ export const api = {
     }
     return {
       success: true,
-      broker_count: _config.bootstrap_servers.split(",").length || 1,
+      broker_count: config.bootstrap_servers.split(",").length || 1,
       kafka_version: "3.7.0",
       error_message: null,
       latency_ms: 38,
@@ -483,8 +461,6 @@ export const api = {
     await sleep(80);
     return BROKERS_BY_CLUSTER[clusterId] ?? [];
   },
-
-  // ── Topic 管理 ────────────────────────────────────────────
 
   async listTopics(clusterId: string): Promise<T.TopicSummary[]> {
     await sleep(120);
@@ -526,20 +502,12 @@ export const api = {
     return { ok: true };
   },
 
-  async updateTopicConfig(
-    _clusterId: string,
-    _topic: string,
-    _configs: Record<string, string>,
-  ): Promise<{ ok: boolean }> {
+  async updateTopicConfig(_clusterId: string, _topic: string, _configs: Record<string, string>): Promise<{ ok: boolean }> {
     await sleep(120);
     return { ok: true };
   },
 
-  async addPartitions(
-    clusterId: string,
-    topic: string,
-    newPartitionCount: number,
-  ): Promise<{ ok: boolean }> {
+  async addPartitions(clusterId: string, topic: string, newPartitionCount: number): Promise<{ ok: boolean }> {
     await sleep(120);
     const list = TOPICS_BY_CLUSTER[clusterId];
     if (list) {
@@ -551,8 +519,6 @@ export const api = {
     return { ok: true };
   },
 
-  // ── 消息浏览 ──────────────────────────────────────────────
-
   async fetchMessages(req: T.FetchMessagesRequest): Promise<T.FetchMessagesResponse> {
     await sleep(200);
     const messages = buildMockMessages(req.topic, req.partition, Math.min(req.limit, 200));
@@ -563,8 +529,6 @@ export const api = {
     };
   },
 
-  // ── 消息生产 ──────────────────────────────────────────────
-
   async produceMessage(req: T.ProduceMessageRequest): Promise<{ partition: number; offset: number }> {
     await sleep(120);
     return {
@@ -573,17 +537,12 @@ export const api = {
     };
   },
 
-  // ── Consumer Group ────────────────────────────────────────
-
   async listConsumerGroups(clusterId: string): Promise<T.ConsumerGroupSummary[]> {
     await sleep(120);
     return [...(GROUPS_BY_CLUSTER[clusterId] ?? [])];
   },
 
-  async getConsumerGroupDetail(
-    clusterId: string,
-    groupId: string,
-  ): Promise<T.ConsumerGroupDetail> {
+  async getConsumerGroupDetail(clusterId: string, groupId: string): Promise<T.ConsumerGroupDetail> {
     await sleep(100);
     return buildGroupDetail(clusterId, groupId);
   },
@@ -602,18 +561,12 @@ export const api = {
     return { ok: true };
   },
 
-  // ── Schema Registry ───────────────────────────────────────
-
   async listSchemaSubjects(clusterId: string): Promise<T.SchemaSubject[]> {
     await sleep(80);
     return [...(SCHEMAS_BY_CLUSTER[clusterId] ?? [])];
   },
 
-  async getSchemaVersion(
-    _clusterId: string,
-    subject: string,
-    version: number | "latest",
-  ): Promise<T.SchemaVersion> {
+  async getSchemaVersion(_clusterId: string, subject: string, version: number | "latest"): Promise<T.SchemaVersion> {
     await sleep(80);
     const isJson = subject.toLowerCase().includes("payment") || subject.includes("notifications");
     return {
@@ -625,16 +578,10 @@ export const api = {
     };
   },
 
-  async deleteSchemaVersion(
-    _clusterId: string,
-    _subject: string,
-    _version: number | "all",
-  ): Promise<{ ok: boolean }> {
+  async deleteSchemaVersion(_clusterId: string, _subject: string, _version: number | "all"): Promise<{ ok: boolean }> {
     await sleep(100);
     return { ok: true };
   },
-
-  // ── Kafka Connect ─────────────────────────────────────────
 
   async listConnectors(clusterId: string): Promise<T.ConnectorSummary[]> {
     await sleep(120);
@@ -662,11 +609,7 @@ export const api = {
     return { ok: true };
   },
 
-  async restartConnector(
-    clusterId: string,
-    connectorName: string,
-    _taskId: number | null,
-  ): Promise<{ ok: boolean }> {
+  async restartConnector(clusterId: string, connectorName: string, _taskId: number | null): Promise<{ ok: boolean }> {
     await sleep(150);
     const list = CONNECTORS_BY_CLUSTER[clusterId];
     const c = list?.find((x) => x.name === connectorName);
@@ -686,16 +629,10 @@ export const api = {
     return { ok: true };
   },
 
-  async upsertConnector(
-    _clusterId: string,
-    _connectorName: string,
-    _config: Record<string, string>,
-  ): Promise<{ ok: boolean }> {
+  async upsertConnector(_clusterId: string, _connectorName: string, _config: Record<string, string>): Promise<{ ok: boolean }> {
     await sleep(150);
     return { ok: true };
   },
-
-  // ── 应用配置 ──────────────────────────────────────────────
 
   async getAppConfig(): Promise<T.AppConfig> {
     await sleep(20);
@@ -708,8 +645,6 @@ export const api = {
     return { ok: true };
   },
 
-  // ── 自动更新 ──────────────────────────────────────────────
-
   async checkUpdate(): Promise<{ latest_version: string; release_url: string }> {
     await sleep(80);
     return {
@@ -718,3 +653,335 @@ export const api = {
     };
   },
 };
+
+type UnknownRecord = Record<string, unknown>;
+
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function normalizeError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  if (typeof err === "string") return new Error(err);
+  try {
+    return new Error(JSON.stringify(err));
+  } catch {
+    return new Error(String(err));
+  }
+}
+
+async function tauriInvoke<R>(command: string, args?: UnknownRecord): Promise<R> {
+  try {
+    return await invoke<R>(command, args);
+  } catch (err) {
+    throw normalizeError(err);
+  }
+}
+
+function mapTimestampType(v: unknown): T.KafkaMessage["timestamp_type"] {
+  if (v === "CreateTime" || v === "create_time") return "create_time";
+  if (v === "LogAppendTime" || v === "log_append_time") return "log_append_time";
+  return null;
+}
+
+function mapEncoding(v: unknown): T.MessageEncoding {
+  if (v === "json") return "json";
+  if (v === "binary") return "binary";
+  if (v === "avro") return "avro";
+  if (v === "protobuf") return "protobuf";
+  return "text";
+}
+
+function normalizeConnectorState(v: unknown): T.ConnectorState {
+  if (v === "RUNNING" || v === "PAUSED" || v === "FAILED" || v === "UNASSIGNED") {
+    return v;
+  }
+  return "UNASSIGNED";
+}
+
+function normalizeTaskState(v: unknown): T.TaskState {
+  if (v === "RUNNING" || v === "PAUSED" || v === "FAILED" || v === "UNASSIGNED") {
+    return v;
+  }
+  return "UNASSIGNED";
+}
+
+function mapFetchMessagesResponse(raw: T.FetchMessagesResponse): T.FetchMessagesResponse {
+  return {
+    ...raw,
+    messages: raw.messages.map((m) => ({
+      ...m,
+      timestamp_type: mapTimestampType(m.timestamp_type),
+      value_encoding: mapEncoding(m.value_encoding),
+      headers: (m.headers ?? []).map((h) => ({
+        key: h.key,
+        value: h.value ?? null,
+      })),
+    })),
+  };
+}
+
+function toBackendResetOffsetRequest(req: T.ResetOffsetRequest): UnknownRecord {
+  const s = req.strategy;
+  if (s.type === "to_offset") {
+    return {
+      ...req,
+      strategy: {
+        type: "specific",
+        offset: s.offset,
+        partition: s.partition,
+      },
+    };
+  }
+  if (s.type === "to_timestamp") {
+    return {
+      ...req,
+      strategy: {
+        type: "timestamp",
+        timestamp: s.timestamp_ms,
+      },
+    };
+  }
+  return req as unknown as UnknownRecord;
+}
+
+function toBackendFetchMode(mode: T.FetchMode): UnknownRecord {
+  if (mode.type === "time_range") {
+    return {
+      type: "from_timestamp",
+      timestamp: mode.start_ms,
+      end_ms: mode.end_ms,
+    };
+  }
+  return mode;
+}
+
+function normalizeAppConfig(cfg: T.AppConfig): T.AppConfig {
+  const languageRaw = String((cfg as unknown as UnknownRecord).language ?? "zh").toLowerCase();
+  const themeRaw = String((cfg as unknown as UnknownRecord).theme ?? "system").toLowerCase();
+  return {
+    theme: themeRaw === "dark" || themeRaw === "light" || themeRaw === "system" ? themeRaw : "system",
+    language: languageRaw.startsWith("en") ? "en" : "zh",
+    fetch_limit_default: Number((cfg as unknown as UnknownRecord).fetch_limit_default ?? 100),
+    max_message_display_bytes: Number((cfg as unknown as UnknownRecord).max_message_display_bytes ?? 1_048_576),
+  };
+}
+
+const realApi: typeof mockApi = {
+  async listClusters() {
+    return tauriInvoke("list_clusters");
+  },
+
+  async saveCluster(config) {
+    const r = await tauriInvoke<{ ok?: boolean }>("save_cluster", { config });
+    return { ok: r.ok ?? true };
+  },
+
+  async deleteCluster(clusterId) {
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_cluster", { cluster_id: clusterId });
+    return { ok: r.ok ?? true };
+  },
+
+  async testConnection(config, password) {
+    return tauriInvoke("test_connection", { config, password });
+  },
+
+  async saveSaslPassword(clusterId, password) {
+    const r = await tauriInvoke<{ ok?: boolean }>("save_sasl_password", {
+      cluster_id: clusterId,
+      password,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async getClusterSummary(clusterId) {
+    return tauriInvoke("get_cluster_summary", { cluster_id: clusterId });
+  },
+
+  async listBrokers(clusterId) {
+    return tauriInvoke("list_brokers", { cluster_id: clusterId });
+  },
+
+  async listTopics(clusterId) {
+    return tauriInvoke("list_topics", { cluster_id: clusterId });
+  },
+
+  async getTopicDetail(clusterId, topic) {
+    return tauriInvoke("get_topic_detail", { cluster_id: clusterId, topic });
+  },
+
+  async createTopic(clusterId, req) {
+    const r = await tauriInvoke<{ ok?: boolean }>("create_topic", { cluster_id: clusterId, req });
+    return { ok: r.ok ?? true };
+  },
+
+  async deleteTopic(clusterId, topic) {
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_topic", { cluster_id: clusterId, topic });
+    return { ok: r.ok ?? true };
+  },
+
+  async updateTopicConfig(clusterId, topic, configs) {
+    const r = await tauriInvoke<{ ok?: boolean }>("update_topic_config", {
+      cluster_id: clusterId,
+      topic,
+      configs,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async addPartitions(clusterId, topic, newPartitionCount) {
+    const r = await tauriInvoke<{ ok?: boolean }>("add_partitions", {
+      cluster_id: clusterId,
+      topic,
+      new_count: newPartitionCount,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async fetchMessages(req) {
+    const raw = await tauriInvoke<T.FetchMessagesResponse>("fetch_messages", {
+      req: {
+        ...req,
+        fetch_mode: toBackendFetchMode(req.fetch_mode),
+      },
+    });
+    return mapFetchMessagesResponse(raw);
+  },
+
+  async produceMessage(req) {
+    await tauriInvoke<{ ok?: boolean }>("produce_message", { req });
+    return {
+      partition: req.partition ?? -1,
+      offset: -1,
+    };
+  },
+
+  async listConsumerGroups(clusterId) {
+    return tauriInvoke("list_consumer_groups", { cluster_id: clusterId });
+  },
+
+  async getConsumerGroupDetail(clusterId, groupId) {
+    return tauriInvoke("get_consumer_group_detail", {
+      cluster_id: clusterId,
+      group_id: groupId,
+    });
+  },
+
+  async deleteConsumerGroup(clusterId, groupId) {
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_consumer_group", {
+      cluster_id: clusterId,
+      group_id: groupId,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async resetOffset(req) {
+    const r = await tauriInvoke<{ ok?: boolean }>("reset_offset", {
+      req: toBackendResetOffsetRequest(req),
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async listSchemaSubjects(clusterId) {
+    return tauriInvoke("list_schema_subjects", { cluster_id: clusterId });
+  },
+
+  async getSchemaVersion(clusterId, subject, version) {
+    return tauriInvoke("get_schema_version", {
+      cluster_id: clusterId,
+      subject,
+      version: String(version),
+    });
+  },
+
+  async deleteSchemaVersion(clusterId, subject, version) {
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_schema_version", {
+      cluster_id: clusterId,
+      subject,
+      version: String(version),
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async listConnectors(clusterId) {
+    const raw = await tauriInvoke<T.ConnectorSummary[]>("list_connectors", { cluster_id: clusterId });
+    return raw.map((c) => ({
+      ...c,
+      state: normalizeConnectorState(c.state),
+      connector_type: c.connector_type === "source" ? "source" : "sink",
+    }));
+  },
+
+  async getConnectorDetail(clusterId, connectorName) {
+    const raw = await tauriInvoke<T.ConnectorDetail>("get_connector_detail", {
+      cluster_id: clusterId,
+      name: connectorName,
+    });
+    return {
+      ...raw,
+      state: normalizeConnectorState(raw.state),
+      connector_type: raw.connector_type === "source" ? "source" : "sink",
+      tasks: (raw.tasks ?? []).map((t) => ({
+        ...t,
+        state: normalizeTaskState(t.state),
+      })),
+    };
+  },
+
+  async pauseConnector(clusterId, connectorName) {
+    const r = await tauriInvoke<{ ok?: boolean }>("pause_connector", {
+      cluster_id: clusterId,
+      name: connectorName,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async resumeConnector(clusterId, connectorName) {
+    const r = await tauriInvoke<{ ok?: boolean }>("resume_connector", {
+      cluster_id: clusterId,
+      name: connectorName,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async restartConnector(clusterId, connectorName, _taskId) {
+    const r = await tauriInvoke<{ ok?: boolean }>("restart_connector", {
+      cluster_id: clusterId,
+      name: connectorName,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async deleteConnector(clusterId, connectorName) {
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_connector", {
+      cluster_id: clusterId,
+      name: connectorName,
+    });
+    return { ok: r.ok ?? true };
+  },
+
+  async upsertConnector(clusterId, connectorName, config) {
+    await tauriInvoke("upsert_connector", {
+      cluster_id: clusterId,
+      name: connectorName,
+      config,
+    });
+    return { ok: true };
+  },
+
+  async getAppConfig() {
+    const raw = await tauriInvoke<T.AppConfig>("get_app_config");
+    return normalizeAppConfig(raw);
+  },
+
+  async saveAppConfig(config) {
+    const r = await tauriInvoke<{ ok?: boolean }>("save_app_config", { config });
+    return { ok: r.ok ?? true };
+  },
+
+  async checkUpdate() {
+    return tauriInvoke("check_update");
+  },
+};
+
+export const api: typeof mockApi = isTauriRuntime() ? realApi : mockApi;

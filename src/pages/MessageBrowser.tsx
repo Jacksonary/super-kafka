@@ -275,7 +275,7 @@ export default function MessageBrowser({ embeddedTopic }: Props) {
         columns={columns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ pageSize: 50, showSizeChanger: true }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [20, 50, 100] }}
         onRow={(record) => ({
           onClick: () => setSelected(record),
           style: { cursor: "pointer" },

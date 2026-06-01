@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import logoUrl from "../../assets/logo.png";
-import { Layout, Menu, Select, Space, Tag, Tooltip, Typography } from "antd";
+import { Layout, Menu, Progress, Select, Space, Tag, Tooltip, Typography, message as antMessage } from "antd";
 import {
   UnorderedListOutlined,
   TeamOutlined,
@@ -8,7 +8,13 @@ import {
   ApiOutlined,
   SettingOutlined,
   SendOutlined,
+  GithubOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { useUpdateCheck } from "../../useUpdateCheck";
+import { theme } from "antd";
 import { Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { useClusterStore } from "../../store/clusterStore";
 import Topics from "../../pages/Topics";
@@ -51,11 +57,45 @@ function StatusDot({ status }: { status: string | undefined }) {
   );
 }
 
+const GITHUB_URL = "https://github.com/Jacksonary/super-kafka";
+const GITEE_URL = "https://gitee.com/weiguoliu/super-kafka";
+
+function GiteeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor">
+      <path d="M11.984 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.016 0zm6.09 5.333c.328 0 .593.26.593.593v1.482a.594.594 0 0 1-.593.592H9.777c-.982 0-1.778.796-1.778 1.778v5.63c0 .327.26.593.593.593h5.63c.982 0 1.778-.796 1.778-1.778v-.296a.593.593 0 0 0-.592-.593h-4.15a.592.592 0 0 1-.592-.592v-1.482a.593.593 0 0 1 .593-.592h6.815c.327 0 .593.265.593.592v3.408a4 4 0 0 1-4 4H5.926a.593.593 0 0 1-.593-.593V9.778a4.444 4.444 0 0 1 4.445-4.444h8.296Z" />
+    </svg>
+  );
+}
+
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { clusters, currentClusterId, setCurrentClusterId, currentSummary } = useClusterStore();
+  const { token } = theme.useToken();
+  const { state: updateState, setState: setUpdateState, fallback, checking, recheck } = useUpdateCheck(__APP_VERSION__);
+
+  const handleUpdate = async () => {
+    if (updateState.status !== "available") return;
+    const upd = updateState.update;
+    let total = 0;
+    let downloaded = 0;
+    setUpdateState({ status: "downloading", progress: 0 });
+    try {
+      await upd.downloadAndInstall((evt) => {
+        if (evt.event === "Started" && evt.data.contentLength) {
+          total = evt.data.contentLength;
+        } else if (evt.event === "Progress") {
+          downloaded += evt.data.chunkLength;
+          if (total > 0) setUpdateState({ status: "downloading", progress: Math.round((downloaded / total) * 100) });
+        }
+      });
+      setUpdateState({ status: "ready" });
+    } catch (e) {
+      setUpdateState({ status: "error", message: String(e) });
+    }
+  };
 
   const selectedKey = useMemo(() => {
     const match = NAV_ITEMS.find((item) => location.pathname.startsWith(item.key));
@@ -171,6 +211,98 @@ export default function MainLayout() {
             )}
           </div>
         )}
+
+        {/* ── Footer: version + links ── */}
+        <div
+          style={{
+            padding: collapsed ? "8px 0" : "8px 12px",
+            borderTop: "1px solid #1f242c",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: collapsed ? "center" : "space-between",
+            gap: 4,
+          }}
+        >
+          {!collapsed && (
+            <>
+              {updateState.status === "available" ? (
+                <Tooltip title={`v${updateState.version} available — click to update`}>
+                  <a onClick={handleUpdate} style={{ cursor: "pointer", textDecoration: "none" }}>
+                    <Text style={{ fontSize: 11, color: token.colorWarningText }}>
+                      v{__APP_VERSION__} → v{updateState.version}
+                    </Text>
+                  </a>
+                </Tooltip>
+              ) : updateState.status === "downloading" ? (
+                <div style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 11, color: token.colorWarningText }}>
+                    Downloading... {updateState.progress}%
+                  </Text>
+                  <Progress percent={updateState.progress} size="small" showInfo={false} strokeColor={token.colorWarning} />
+                </div>
+              ) : updateState.status === "ready" ? (
+                <a onClick={() => relaunch()} style={{ cursor: "pointer", textDecoration: "none" }}>
+                  <Text style={{ fontSize: 11, color: token.colorSuccessText }}>
+                    Update ready — restart
+                  </Text>
+                </a>
+              ) : updateState.status === "error" ? (
+                <Tooltip title={updateState.message}>
+                  <a onClick={recheck} style={{ cursor: "pointer", textDecoration: "none" }}>
+                    <Text style={{ fontSize: 11, color: token.colorErrorText }}>Update failed — retry</Text>
+                  </a>
+                </Tooltip>
+              ) : fallback ? (
+                <Tooltip title={`v${fallback.latestVersion} available — click to open release`}>
+                  <a onClick={() => openUrl(fallback.releaseUrl)} style={{ cursor: "pointer", textDecoration: "none" }}>
+                    <Text style={{ fontSize: 11, color: token.colorWarningText }}>
+                      v{__APP_VERSION__} → v{fallback.latestVersion}
+                    </Text>
+                  </a>
+                </Tooltip>
+              ) : (
+                <Space size={4}>
+                  <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>
+                    v{__APP_VERSION__}
+                  </Text>
+                  <Tooltip title="Check for updates">
+                    <ReloadOutlined
+                      spin={checking}
+                      style={{ fontSize: 11, color: token.colorTextQuaternary, cursor: "pointer" }}
+                      onClick={async () => {
+                        if (checking) return;
+                        const result = await recheck();
+                        if (result === "up-to-date") antMessage.info("Already up to date");
+                        else if (result === "error") antMessage.error("Failed to check for updates");
+                      }}
+                    />
+                  </Tooltip>
+                </Space>
+              )}
+            </>
+          )}
+
+          <Space size={6} align="center">
+            <Tooltip title="GitHub">
+              <a
+                onClick={() => openUrl(GITHUB_URL)}
+                style={{ color: token.colorTextQuaternary, cursor: "pointer", display: "flex" }}
+                aria-label="GitHub"
+              >
+                <GithubOutlined style={{ fontSize: 14 }} />
+              </a>
+            </Tooltip>
+            <Tooltip title="Gitee">
+              <a
+                onClick={() => openUrl(GITEE_URL)}
+                style={{ color: token.colorTextQuaternary, cursor: "pointer", display: "flex", fontSize: 14 }}
+                aria-label="Gitee"
+              >
+                <GiteeIcon />
+              </a>
+            </Tooltip>
+          </Space>
+        </div>
       </Sider>
 
       <Layout>

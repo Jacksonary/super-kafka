@@ -198,10 +198,12 @@ export default function MainLayout() {
             style={{
               width: 32,
               height: 32,
-              borderRadius: 8,
+              borderRadius: "50%",
               overflow: "hidden",
               flexShrink: 0,
               marginRight: 10,
+              border: "1.5px solid rgba(0,212,255,0.5)",
+              boxShadow: "0 0 8px rgba(0,212,255,0.25)",
             }}
           >
             <img src={logoUrl} alt="logo" style={{ width: 32, height: 32, display: "block" }} />
@@ -241,11 +243,6 @@ export default function MainLayout() {
                 >
                   {label ?? clusterDisplayName}
                 </Text>
-                {currentSummary?.status === "connected" && (
-                  <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>
-                    v{currentSummary.kafka_version ?? "?"} · {currentSummary.broker_count ?? 0} broker{(currentSummary.broker_count ?? 0) !== 1 ? "s" : ""}
-                  </Text>
-                )}
                 {currentSummary?.status === "error" && currentSummary.error_message && (
                   <Tooltip title={currentSummary.error_message}>
                     <Text

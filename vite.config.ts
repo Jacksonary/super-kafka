@@ -4,11 +4,16 @@ import { execSync } from "child_process";
 
 function getAppVersion(): string {
   try {
-    return execSync("git describe --tags --abbrev=0 2>/dev/null").toString().trim();
+    const result = execSync("git describe --tags --abbrev=0", {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return result.toString().trim();
   } catch {
     try {
-      const hash = execSync("git rev-parse --short HEAD").toString().trim();
-      return `0.0.0-dev+${hash}`;
+      const hash = execSync("git rev-parse --short HEAD", {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      return `0.0.0-dev+${hash.toString().trim()}`;
     } catch {
       return "0.0.0-dev";
     }

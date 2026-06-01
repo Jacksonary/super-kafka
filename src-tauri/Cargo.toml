@@ -15,7 +15,7 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-rdkafka = { version = "0.36", features = ["cmake-build", "ssl-vendored", "curl-static"] }
+rdkafka = { version = "0.36", features = ["cmake-build", "ssl-vendored", "curl-static", "zstd", "libz"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "5"

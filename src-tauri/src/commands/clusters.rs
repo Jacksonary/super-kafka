@@ -74,10 +74,16 @@ async fn fetch_produce_api_max_version(addr: &str, timeout: Duration) -> Option<
 }
 
 /// Map Produce API max version to a Kafka version string.
+/// Map Produce API max version to a Kafka version string.
 /// Reference: https://kafka.apache.org/protocol#api_versions
+///
+/// The upper bound arm (>=3.3) covers future Kafka releases whose Produce API
+/// version is not yet in this table. When a new Kafka version ships, add a new
+/// arm above it with the exact version string.
 fn produce_version_to_kafka(max_version: i16) -> &'static str {
     match max_version {
-        12.. => "3.3+",
+        13.. => ">=3.3", // update when new Kafka releases raise Produce API version
+        12 => "3.3",
         11 => "3.2",
         10 => "3.1",
         9  => "2.8",

@@ -778,7 +778,7 @@ const realApi: typeof mockApi = {
   },
 
   async deleteCluster(clusterId) {
-    const r = await tauriInvoke<{ ok?: boolean }>("delete_cluster", { cluster_id: clusterId });
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_cluster", { clusterId });
     return { ok: r.ok ?? true };
   },
 
@@ -787,53 +787,46 @@ const realApi: typeof mockApi = {
   },
 
   async saveSaslPassword(clusterId, password) {
-    const r = await tauriInvoke<{ ok?: boolean }>("save_sasl_password", {
-      cluster_id: clusterId,
-      password,
-    });
+    const r = await tauriInvoke<{ ok?: boolean }>("save_sasl_password", { clusterId, password });
     return { ok: r.ok ?? true };
   },
 
   async getClusterSummary(clusterId) {
-    return tauriInvoke("get_cluster_summary", { cluster_id: clusterId });
+    return tauriInvoke("get_cluster_summary", { clusterId });
   },
 
   async listBrokers(clusterId) {
-    return tauriInvoke("list_brokers", { cluster_id: clusterId });
+    return tauriInvoke("list_brokers", { clusterId });
   },
 
   async listTopics(clusterId) {
-    return tauriInvoke("list_topics", { cluster_id: clusterId });
+    return tauriInvoke("list_topics", { clusterId });
   },
 
   async getTopicDetail(clusterId, topic) {
-    return tauriInvoke("get_topic_detail", { cluster_id: clusterId, topic });
+    return tauriInvoke("get_topic_detail", { clusterId, topic });
   },
 
   async createTopic(clusterId, req) {
-    const r = await tauriInvoke<{ ok?: boolean }>("create_topic", { cluster_id: clusterId, req });
+    const r = await tauriInvoke<{ ok?: boolean }>("create_topic", { clusterId, req });
     return { ok: r.ok ?? true };
   },
 
   async deleteTopic(clusterId, topic) {
-    const r = await tauriInvoke<{ ok?: boolean }>("delete_topic", { cluster_id: clusterId, topic });
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_topic", { clusterId, topic });
     return { ok: r.ok ?? true };
   },
 
   async updateTopicConfig(clusterId, topic, configs) {
-    const r = await tauriInvoke<{ ok?: boolean }>("update_topic_config", {
-      cluster_id: clusterId,
-      topic,
-      configs,
-    });
+    const r = await tauriInvoke<{ ok?: boolean }>("update_topic_config", { clusterId, topic, configs });
     return { ok: r.ok ?? true };
   },
 
   async addPartitions(clusterId, topic, newPartitionCount) {
     const r = await tauriInvoke<{ ok?: boolean }>("add_partitions", {
-      cluster_id: clusterId,
+      clusterId,
       topic,
-      new_count: newPartitionCount,
+      newCount: newPartitionCount,
     });
     return { ok: r.ok ?? true };
   },
@@ -857,21 +850,15 @@ const realApi: typeof mockApi = {
   },
 
   async listConsumerGroups(clusterId) {
-    return tauriInvoke("list_consumer_groups", { cluster_id: clusterId });
+    return tauriInvoke("list_consumer_groups", { clusterId });
   },
 
   async getConsumerGroupDetail(clusterId, groupId) {
-    return tauriInvoke("get_consumer_group_detail", {
-      cluster_id: clusterId,
-      group_id: groupId,
-    });
+    return tauriInvoke("get_consumer_group_detail", { clusterId, groupId });
   },
 
   async deleteConsumerGroup(clusterId, groupId) {
-    const r = await tauriInvoke<{ ok?: boolean }>("delete_consumer_group", {
-      cluster_id: clusterId,
-      group_id: groupId,
-    });
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_consumer_group", { clusterId, groupId });
     return { ok: r.ok ?? true };
   },
 
@@ -883,20 +870,16 @@ const realApi: typeof mockApi = {
   },
 
   async listSchemaSubjects(clusterId) {
-    return tauriInvoke("list_schema_subjects", { cluster_id: clusterId });
+    return tauriInvoke("list_schema_subjects", { clusterId });
   },
 
   async getSchemaVersion(clusterId, subject, version) {
-    return tauriInvoke("get_schema_version", {
-      cluster_id: clusterId,
-      subject,
-      version: String(version),
-    });
+    return tauriInvoke("get_schema_version", { clusterId, subject, version: String(version) });
   },
 
   async deleteSchemaVersion(clusterId, subject, version) {
     const r = await tauriInvoke<{ ok?: boolean }>("delete_schema_version", {
-      cluster_id: clusterId,
+      clusterId,
       subject,
       version: String(version),
     });
@@ -904,7 +887,7 @@ const realApi: typeof mockApi = {
   },
 
   async listConnectors(clusterId) {
-    const raw = await tauriInvoke<T.ConnectorSummary[]>("list_connectors", { cluster_id: clusterId });
+    const raw = await tauriInvoke<T.ConnectorSummary[]>("list_connectors", { clusterId });
     return raw.map((c) => ({
       ...c,
       state: normalizeConnectorState(c.state),
@@ -914,7 +897,7 @@ const realApi: typeof mockApi = {
 
   async getConnectorDetail(clusterId, connectorName) {
     const raw = await tauriInvoke<T.ConnectorDetail>("get_connector_detail", {
-      cluster_id: clusterId,
+      clusterId,
       name: connectorName,
     });
     return {
@@ -929,43 +912,27 @@ const realApi: typeof mockApi = {
   },
 
   async pauseConnector(clusterId, connectorName) {
-    const r = await tauriInvoke<{ ok?: boolean }>("pause_connector", {
-      cluster_id: clusterId,
-      name: connectorName,
-    });
+    const r = await tauriInvoke<{ ok?: boolean }>("pause_connector", { clusterId, name: connectorName });
     return { ok: r.ok ?? true };
   },
 
   async resumeConnector(clusterId, connectorName) {
-    const r = await tauriInvoke<{ ok?: boolean }>("resume_connector", {
-      cluster_id: clusterId,
-      name: connectorName,
-    });
+    const r = await tauriInvoke<{ ok?: boolean }>("resume_connector", { clusterId, name: connectorName });
     return { ok: r.ok ?? true };
   },
 
   async restartConnector(clusterId, connectorName, _taskId) {
-    const r = await tauriInvoke<{ ok?: boolean }>("restart_connector", {
-      cluster_id: clusterId,
-      name: connectorName,
-    });
+    const r = await tauriInvoke<{ ok?: boolean }>("restart_connector", { clusterId, name: connectorName });
     return { ok: r.ok ?? true };
   },
 
   async deleteConnector(clusterId, connectorName) {
-    const r = await tauriInvoke<{ ok?: boolean }>("delete_connector", {
-      cluster_id: clusterId,
-      name: connectorName,
-    });
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_connector", { clusterId, name: connectorName });
     return { ok: r.ok ?? true };
   },
 
   async upsertConnector(clusterId, connectorName, config) {
-    await tauriInvoke("upsert_connector", {
-      cluster_id: clusterId,
-      name: connectorName,
-      config,
-    });
+    await tauriInvoke("upsert_connector", { clusterId, name: connectorName, config });
     return { ok: true };
   },
 

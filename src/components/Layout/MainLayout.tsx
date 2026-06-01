@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import logoUrl from "../../assets/logo.png";
 import { Layout, Menu, Select, Space, Tag, Tooltip, Typography } from "antd";
 import {
   UnorderedListOutlined,
@@ -85,7 +86,17 @@ export default function MainLayout() {
             borderBottom: "1px solid #1f242c",
           }}
         >
-          <span style={{ fontSize: 22, marginRight: collapsed ? 0 : 10 }}>⚡</span>
+          <img
+            src={logoUrl}
+            alt="logo"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              marginRight: collapsed ? 0 : 10,
+              flexShrink: 0,
+            }}
+          />
           {!collapsed && (
             <Text strong style={{ color: "#00d4ff", fontSize: 16 }}>
               Super Kafka

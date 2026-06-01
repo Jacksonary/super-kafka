@@ -126,17 +126,18 @@ export default function MainLayout() {
             borderBottom: "1px solid #1f242c",
           }}
         >
-          <img
-            src={logoUrl}
-            alt="logo"
+          <div
             style={{
               width: 32,
               height: 32,
               borderRadius: 8,
-              marginRight: collapsed ? 0 : 10,
+              overflow: "hidden",
               flexShrink: 0,
+              marginRight: collapsed ? 0 : 10,
             }}
-          />
+          >
+            <img src={logoUrl} alt="logo" style={{ width: 32, height: 32, display: "block" }} />
+          </div>
           {!collapsed && (
             <Text strong style={{ color: "#00d4ff", fontSize: 16 }}>
               Super Kafka

@@ -27,3 +27,11 @@ html, body, #root {
 pre {
   font-family: "SF Mono", Menlo, Consolas, Monaco, "Courier New", monospace;
 }
+
+/* Sider 内部 children 容器继承 flex-column，使 footer 能贴底 */
+.ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}

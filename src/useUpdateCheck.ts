@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { api } from "./api";
 
@@ -37,8 +37,11 @@ export function useUpdateCheck(currentVersion: string) {
   const [state, setState] = useState<UpdateState>({ status: "idle" });
   const [fallback, setFallback] = useState<FallbackInfo | null>(null);
   const [checking, setChecking] = useState(false);
+  const runningRef = useRef(false);
 
   const doCheck = async (skipCache = false): Promise<"up-to-date" | "error" | null> => {
+    if (runningRef.current) return null;
+
     if (!skipCache) {
       const cached = sessionStorage.getItem(CACHE_KEY);
       if (cached) {
@@ -49,11 +52,13 @@ export function useUpdateCheck(currentVersion: string) {
       }
     }
 
+    runningRef.current = true;
     setChecking(true);
     try {
       const update = await check();
       sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
       if (update) {
+        setFallback(null);
         setState({ status: "available", update, version: update.version });
       } else if (skipCache) {
         return "up-to-date";
@@ -71,6 +76,7 @@ export function useUpdateCheck(currentVersion: string) {
         if (skipCache) return "error";
       }
     } finally {
+      runningRef.current = false;
       setChecking(false);
     }
     return null;

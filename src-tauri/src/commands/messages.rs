@@ -35,7 +35,6 @@ pub async fn fetch_messages(
             format!("super-kafka-fetch-{}", uuid::Uuid::new_v4()),
         );
         cfg.set("enable.auto.commit", "false");
-        cfg.set("enable.partition.eof", "true");
 
         let consumer: BaseConsumer = cfg
             .create()
@@ -55,6 +54,12 @@ pub async fn fetch_messages(
             None => topic_meta.partitions().iter().map(|p| p.id()).collect(),
         };
 
+        // Collect watermarks and starting offsets per partition.
+        // We use high watermarks to detect EOF instead of enable.partition.eof,
+        // which is incompatible with assign() (non-subscribe) mode on some brokers.
+        // Only track partitions that actually have messages (high > start offset).
+        let mut partition_high: std::collections::HashMap<i32, i64> =
+            std::collections::HashMap::new();
         let mut tpl = TopicPartitionList::new();
         for &p in &target_partitions {
             let (low, high) = consumer
@@ -63,16 +68,33 @@ pub async fn fetch_messages(
             let offset = decide_offset(&req.fetch_mode, low, high, limit, target_partitions.len() as i64)?;
             tpl.add_partition_offset(&req.topic, p, offset)
                 .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+            // Skip empty partitions — nothing to consume there
+            let start = match offset {
+                Offset::Beginning => low,
+                Offset::Offset(o) => o,
+                _ => low,
+            };
+            if high > start {
+                partition_high.insert(p, high);
+            }
         }
         consumer
             .assign(&tpl)
             .map_err(|e| format!("[KAFKA-CONSUMER] assign: {e}"))?;
 
+        // If all partitions are empty, return immediately
+        if partition_high.is_empty() {
+            return Ok(FetchMessagesResponse {
+                messages: vec![],
+                total_fetched: 0,
+                has_more: false,
+            });
+        }
+
         let mut messages: Vec<KafkaMessage> = Vec::with_capacity(limit as usize);
         let started = std::time::Instant::now();
         let max_wait = Duration::from_secs(30);
-        let mut eof_count = 0usize;
-        let target_eof = target_partitions.len();
+        let mut consecutive_timeouts = 0usize;
 
         while messages.len() < limit as usize {
             if started.elapsed() > max_wait {
@@ -80,19 +102,30 @@ pub async fn fetch_messages(
             }
             match consumer.poll(POLL_TIMEOUT) {
                 Some(Ok(m)) => {
+                    consecutive_timeouts = 0;
+                    let next_offset = m.offset() + 1;
+                    let high = partition_high.get(&m.partition()).copied().unwrap_or(0);
                     let kafka_msg = borrowed_to_kafka_message(&m);
                     messages.push(kafka_msg);
-                }
-                Some(Err(rdkafka::error::KafkaError::PartitionEOF(_))) => {
-                    eof_count += 1;
-                    if eof_count >= target_eof {
-                        break;
+                    // Stop tracking this partition once we've consumed up to its high watermark
+                    if next_offset >= high {
+                        partition_high.remove(&m.partition());
+                        if partition_high.is_empty() {
+                            break;
+                        }
                     }
                 }
                 Some(Err(e)) => {
                     return Err(format!("[KAFKA-CONSUMER] poll: {e}"));
                 }
-                None => {}
+                None => {
+                    // poll() timed out — could be a slow broker between batches.
+                    // Allow a few consecutive timeouts before treating it as EOF.
+                    consecutive_timeouts += 1;
+                    if consecutive_timeouts >= 3 {
+                        break;
+                    }
+                }
             }
         }
 

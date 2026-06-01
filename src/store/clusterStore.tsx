@@ -67,6 +67,7 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
       setConnecting(false);
       return;
     }
+    setCurrentSummary(null);
     setConnecting(true);
     try {
       const s = await api.getClusterSummary(currentClusterId);

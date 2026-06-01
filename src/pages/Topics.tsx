@@ -214,7 +214,7 @@ export default function Topics() {
         rowKey="name"
         dataSource={filtered}
         columns={columns}
-        pagination={{ pageSize: 50, showSizeChanger: true }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
         locale={{
           emptyText: <Empty description="No topics" />,
         }}

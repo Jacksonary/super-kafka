@@ -7,7 +7,7 @@ function getAppVersion(): string {
     const result = execSync("git describe --tags --abbrev=0", {
       stdio: ["ignore", "pipe", "ignore"],
     });
-    return result.toString().trim();
+    return result.toString().trim().replace(/^v/i, "");
   } catch {
     try {
       const hash = execSync("git rev-parse --short HEAD", {

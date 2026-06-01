@@ -11,6 +11,7 @@ interface ClusterStoreValue {
   currentCluster: ClusterConfig | null;
   currentSummary: ClusterSummary | null;
   refreshCurrentSummary: () => Promise<void>;
+  connecting: boolean;
 }
 
 const ClusterStoreContext = createContext<ClusterStoreValue | null>(null);
@@ -28,6 +29,7 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     }
   });
   const [currentSummary, setCurrentSummary] = useState<ClusterSummary | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
   const setCurrentClusterId = useCallback((id: string | null) => {
     setCurrentClusterIdState(id);
@@ -62,15 +64,27 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
   const refreshCurrentSummary = useCallback(async () => {
     if (!currentClusterId) {
       setCurrentSummary(null);
+      setConnecting(false);
       return;
     }
+    setConnecting(true);
     try {
       const s = await api.getClusterSummary(currentClusterId);
       setCurrentSummary(s);
-    } catch {
-      setCurrentSummary(null);
+    } catch (e) {
+      setCurrentSummary({
+        id: currentClusterId,
+        name: clusters.find((c) => c.id === currentClusterId)?.name ?? currentClusterId,
+        bootstrap_servers: clusters.find((c) => c.id === currentClusterId)?.bootstrap_servers ?? "",
+        status: "error",
+        broker_count: null,
+        kafka_version: null,
+        error_message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setConnecting(false);
     }
-  }, [currentClusterId]);
+  }, [currentClusterId, clusters]);
 
   useEffect(() => {
     void refreshClusters();
@@ -94,6 +108,7 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     currentCluster,
     currentSummary,
     refreshCurrentSummary,
+    connecting,
   };
 
   return (

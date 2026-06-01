@@ -163,12 +163,79 @@ pub async fn get_consumer_group_detail(
     .map_err(|e| format!("[RUNTIME] join: {e}"))?
 }
 
-fn parse_assignment(_bytes: &[u8]) -> Vec<AssignedPartition> {
-    // Decoding the binary assignment payload requires implementing the
-    // ConsumerProtocolAssignment schema. We expose an empty list here and
-    // rely on `topic_lag` for the operational view; users see assignment
-    // through committed offsets instead.
-    Vec::new()
+/// Parse the binary ConsumerProtocolAssignment payload.
+///
+/// Wire format (big-endian):
+///   INT16  version
+///   INT32  topic_count
+///   for each topic:
+///     INT16  topic_name_len
+///     bytes  topic_name (UTF-8)
+///     INT32  partition_count
+///     for each partition:
+///       INT32 partition_id
+///   INT32  user_data_len  (-1 = null)
+///   bytes  user_data
+fn parse_assignment(bytes: &[u8]) -> Vec<AssignedPartition> {
+    if bytes.len() < 6 {
+        return Vec::new();
+    }
+    let mut pos = 0;
+
+    // version (INT16) — ignore value, format is identical for v0 and v1
+    pos += 2;
+
+    let topic_count = i32::from_be_bytes(match bytes[pos..pos + 4].try_into() {
+        Ok(b) => b,
+        Err(_) => return Vec::new(),
+    }) as usize;
+    pos += 4;
+
+    let mut out = Vec::new();
+    for _ in 0..topic_count {
+        if pos + 2 > bytes.len() {
+            break;
+        }
+        let name_len_raw = i16::from_be_bytes([bytes[pos], bytes[pos + 1]]);
+        pos += 2;
+        if name_len_raw <= 0 {
+            break;
+        }
+        let name_len = name_len_raw as usize;
+        if pos + name_len > bytes.len() {
+            break;
+        }
+        let topic = match std::str::from_utf8(&bytes[pos..pos + name_len]) {
+            Ok(s) => s.to_string(),
+            Err(_) => break,
+        };
+        pos += name_len;
+
+        if pos + 4 > bytes.len() {
+            break;
+        }
+        let part_count = i32::from_be_bytes(match bytes[pos..pos + 4].try_into() {
+            Ok(b) => b,
+            Err(_) => break,
+        }) as usize;
+        pos += 4;
+
+        for _ in 0..part_count {
+            if pos + 4 > bytes.len() {
+                break;
+            }
+            let partition = i32::from_be_bytes(match bytes[pos..pos + 4].try_into() {
+                Ok(b) => b,
+                Err(_) => break,
+            });
+            pos += 4;
+            out.push(AssignedPartition {
+                topic: topic.clone(),
+                partition,
+            });
+        }
+    }
+    out
 }
 
 #[tauri::command]

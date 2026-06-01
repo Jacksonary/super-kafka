@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::AppState;
 use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, Headers, Message, OwnedHeaders, Timestamp};
 use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
@@ -116,7 +117,16 @@ pub async fn fetch_messages(
                     }
                 }
                 Some(Err(e)) => {
-                    return Err(format!("[KAFKA-CONSUMER] poll: {e}"));
+                    match &e {
+                        // NotImplemented is surfaced by librdkafka when it encounters
+                        // a compressed batch with an unsupported codec, or an unrecognised
+                        // message format version. It is non-fatal: librdkafka skips the
+                        // offending batch and continues. We mirror that behaviour.
+                        // Do NOT reset consecutive_timeouts here — the broker is not
+                        // delivering usable data, so EOF detection should still proceed.
+                        KafkaError::MessageConsumption(RDKafkaErrorCode::NotImplemented) => {}
+                        _ => return Err(format!("[KAFKA-CONSUMER] poll: {e}")),
+                    }
                 }
                 None => {
                     // poll() timed out — could be a slow broker between batches.

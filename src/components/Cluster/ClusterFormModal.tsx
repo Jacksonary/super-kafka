@@ -268,7 +268,7 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
             icon={testResult.success ? <CheckCircleFilled /> : <CloseCircleFilled />}
             message={
               testResult.success
-                ? `Connected — ${testResult.broker_count} brokers, Kafka ${testResult.kafka_version}, ${testResult.latency_ms}ms`
+                ? `Connected — ${testResult.broker_count} brokers${testResult.kafka_version ? `, Kafka ${testResult.kafka_version}` : ""}, ${testResult.latency_ms}ms`
                 : "Connection failed"
             }
             description={testResult.error_message}

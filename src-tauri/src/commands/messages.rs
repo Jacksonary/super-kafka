@@ -220,7 +220,6 @@ fn borrowed_to_kafka_message(m: &rdkafka::message::BorrowedMessage<'_>) -> Kafka
         value_text,
         value_encoding,
         headers,
-        compression_codec: "unknown".to_string(),
     }
 }
 

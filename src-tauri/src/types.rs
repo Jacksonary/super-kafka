@@ -99,7 +99,6 @@ pub struct KafkaMessage {
     pub value_text: Option<String>,
     pub value_encoding: String,
     pub headers: Vec<MessageHeader>,
-    pub compression_codec: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

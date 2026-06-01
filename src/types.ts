@@ -110,7 +110,6 @@ export interface KafkaMessage {
   value_text: string | null;        // UTF-8 decode attempt
   value_encoding: MessageEncoding;  // 后端检测结果
   headers: MessageHeader[];
-  compression_codec: string;        // "none"|"gzip"|"snappy"|"lz4"|"zstd"
 }
 
 export interface MessageHeader {

@@ -193,12 +193,12 @@ function buildTopicDetail(topic: T.TopicSummary): T.TopicDetail {
 }
 
 function buildMockMessages(topic: string, partitionFilter: number | null, limit: number): T.KafkaMessage[] {
-  const samples: { value: unknown; encoding: T.MessageEncoding; compression: string }[] = [
-    { value: { user_id: "u-1024", event: "login", ts: Date.now() - 5000 }, encoding: "json", compression: "lz4" },
-    { value: { order_id: "ord-9981", amount: 19.99, currency: "USD", items: [{ sku: "A-1", qty: 2 }] }, encoding: "json", compression: "snappy" },
-    { value: "raw text payload from sensor 42", encoding: "text", compression: "none" },
-    { value: { user_id: "u-2048", event: "purchase", amount: 199, items: 3 }, encoding: "json", compression: "gzip" },
-    { value: { error: "timeout", retry: 3, host: "api-7" }, encoding: "json", compression: "zstd" },
+  const samples: { value: unknown; encoding: T.MessageEncoding }[] = [
+    { value: { user_id: "u-1024", event: "login", ts: Date.now() - 5000 }, encoding: "json" },
+    { value: { order_id: "ord-9981", amount: 19.99, currency: "USD", items: [{ sku: "A-1", qty: 2 }] }, encoding: "json" },
+    { value: "raw text payload from sensor 42", encoding: "text" },
+    { value: { user_id: "u-2048", event: "purchase", amount: 199, items: 3 }, encoding: "json" },
+    { value: { error: "timeout", retry: 3, host: "api-7" }, encoding: "json" },
   ];
 
   const out: T.KafkaMessage[] = [];
@@ -223,7 +223,6 @@ function buildMockMessages(topic: string, partitionFilter: number | null, limit:
         { key: "trace-id", value: `trc-${1000 + i}` },
         { key: "source", value: "service-api" },
       ],
-      compression_codec: s.compression,
     });
   }
   return out;

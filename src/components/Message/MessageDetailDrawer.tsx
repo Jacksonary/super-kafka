@@ -63,11 +63,6 @@ export default function MessageDetailDrawer({ open, message, onClose }: Props) {
                 <Tag style={{ marginLeft: 6 }}>{message.timestamp_type}</Tag>
               )}
             </Descriptions.Item>
-            <Descriptions.Item label="Compression">
-              <Tag color={message.compression_codec === "none" ? "default" : "cyan"}>
-                {message.compression_codec}
-              </Tag>
-            </Descriptions.Item>
             <Descriptions.Item label="Encoding">
               <Tag color="blue">{message.value_encoding}</Tag>
             </Descriptions.Item>

@@ -141,17 +141,6 @@ export default function MessageBrowser({ embeddedTopic }: Props) {
           <Text type="secondary">(binary)</Text>
         ),
     },
-    {
-      title: "Compression",
-      dataIndex: "compression_codec",
-      key: "compression_codec",
-      width: 110,
-      render: (c: string) => (
-        <Tag color={c === "none" ? "default" : "cyan"} bordered={false}>
-          {c}
-        </Tag>
-      ),
-    },
   ];
 
   if (!currentClusterId) {

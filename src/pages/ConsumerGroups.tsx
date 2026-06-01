@@ -16,9 +16,11 @@ import type { ColumnsType } from "antd/es/table";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
 import type {
+  AssignedPartition,
   ConsumerGroupDetail,
   ConsumerGroupState,
   ConsumerGroupSummary,
+  GroupMember,
   PartitionLag,
   TopicLag,
 } from "../types";
@@ -188,7 +190,12 @@ export default function ConsumerGroups() {
                 </div>
               );
             }
-            return <TopicLagTable topicLag={detail.topic_lag} />;
+            return (
+              <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                {detail.members.length > 0 && <MembersTable members={detail.members} />}
+                <TopicLagTable topicLag={detail.topic_lag} />
+              </Space>
+            );
           },
         }}
       />
@@ -199,6 +206,40 @@ export default function ConsumerGroups() {
         groupId={resetTarget?.groupId ?? ""}
         topics={resetTarget?.topics ?? []}
         onClose={() => setResetTarget(null)}
+      />
+    </Card>
+  );
+}
+
+function MembersTable({ members }: { members: GroupMember[] }) {
+  return (
+    <Card size="small" title={<Text strong>Members ({members.length})</Text>}>
+      <Table<GroupMember>
+        size="small"
+        rowKey="member_id"
+        pagination={false}
+        dataSource={members}
+        columns={[
+          { title: "Member ID", dataIndex: "member_id", key: "member_id", ellipsis: true },
+          { title: "Client ID", dataIndex: "client_id", key: "client_id", ellipsis: true },
+          { title: "Host", dataIndex: "client_host", key: "client_host", width: 160 },
+          {
+            title: "Assigned Partitions",
+            key: "assigned_partitions",
+            render: (_: unknown, m: GroupMember) =>
+              m.assigned_partitions.length === 0 ? (
+                <Text type="secondary">none</Text>
+              ) : (
+                <Space size={4} wrap>
+                  {m.assigned_partitions.map((ap: AssignedPartition) => (
+                    <Tag key={`${ap.topic}-${ap.partition}`} bordered={false}>
+                      {ap.topic}:{ap.partition}
+                    </Tag>
+                  ))}
+                </Space>
+              ),
+          },
+        ]}
       />
     </Card>
   );

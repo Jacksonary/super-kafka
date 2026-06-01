@@ -1,4 +1,5 @@
-import { Descriptions, Drawer, Empty, Space, Tag, Typography } from "antd";
+import { Button, Descriptions, Drawer, Empty, Space, Tag, Tooltip, Typography, message as antMessage } from "antd";
+import { CopyOutlined } from "@ant-design/icons";
 import type { KafkaMessage } from "../../types";
 import { formatTimestamp } from "../../utils/format";
 
@@ -79,9 +80,25 @@ export default function MessageDetailDrawer({ open, message, onClose }: Props) {
 
           <div>
             <Text strong>Value</Text>
-            <CodeBlock>
-              {tryFormatJson(message.value_text) ?? message.value_text ?? "(binary)"}
-            </CodeBlock>
+            <div style={{ position: "relative" }}>
+              <CodeBlock>
+                {tryFormatJson(message.value_text) ?? message.value_text ?? "(binary)"}
+              </CodeBlock>
+              <Tooltip title="Copy value">
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<CopyOutlined />}
+                  style={{ position: "absolute", top: 6, right: 6 }}
+                  onClick={() => {
+                    const text = tryFormatJson(message.value_text) ?? message.value_text ?? "";
+                    navigator.clipboard.writeText(text).then(() => {
+                      void antMessage.success("Copied");
+                    });
+                  }}
+                />
+              </Tooltip>
+            </div>
           </div>
 
           <div>

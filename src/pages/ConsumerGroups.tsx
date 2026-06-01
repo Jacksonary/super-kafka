@@ -65,13 +65,16 @@ export default function ConsumerGroups() {
   }, [load]);
 
   const loadDetail = useCallback(
-    async (groupId: string) => {
-      if (!currentClusterId || details[groupId]) return;
+    async (groupId: string): Promise<ConsumerGroupDetail | null> => {
+      if (!currentClusterId) return null;
+      if (details[groupId]) return details[groupId];
       try {
         const d = await api.getConsumerGroupDetail(currentClusterId, groupId);
         setDetails((prev) => ({ ...prev, [groupId]: d }));
+        return d;
       } catch (e) {
         message.error(String(e));
+        return null;
       }
     },
     [currentClusterId, details, message],
@@ -136,8 +139,7 @@ export default function ConsumerGroups() {
             size="small"
             icon={<ThunderboltOutlined />}
             onClick={async () => {
-              await loadDetail(g.group_id);
-              const det = details[g.group_id];
+              const det = await loadDetail(g.group_id);
               const topics = det ? det.topic_lag.map((t) => t.topic) : [];
               setResetTarget({ groupId: g.group_id, topics });
             }}

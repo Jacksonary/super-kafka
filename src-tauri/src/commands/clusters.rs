@@ -19,7 +19,7 @@ async fn fetch_produce_api_max_version(addr: &str, timeout: Duration) -> Option<
 
     // ApiVersions Request v0:
     // [i32 length] [i16 api_key=18] [i16 api_version=0] [i32 correlation_id] [i16 client_id_len=-1]
-    let mut req: Vec<u8> = Vec::with_capacity(22);
+    let mut req: Vec<u8> = Vec::with_capacity(14);
     let body: Vec<u8> = vec![
         0x00, 0x12, // api_key = 18 (ApiVersions)
         0x00, 0x00, // api_version = 0
@@ -74,19 +74,18 @@ async fn fetch_produce_api_max_version(addr: &str, timeout: Duration) -> Option<
 }
 
 /// Map Produce API max version to a Kafka version string.
-/// Map Produce API max version to a Kafka version string.
 /// Reference: https://kafka.apache.org/protocol#api_versions
 ///
-/// The upper bound arm (>=3.3) covers future Kafka releases whose Produce API
-/// version is not yet in this table. When a new Kafka version ships, add a new
-/// arm above it with the exact version string.
+/// The upper bound arm covers future Kafka releases whose Produce API version
+/// is not yet in this table. When a new Kafka version ships, add a new arm
+/// above it with the exact version string.
 fn produce_version_to_kafka(max_version: i16) -> &'static str {
     match max_version {
-        13.. => ">=3.3", // update when new Kafka releases raise Produce API version
+        13.. => ">3.3", // update when new Kafka releases raise Produce API version
         12 => "3.3",
         11 => "3.2",
         10 => "3.1",
-        9  => "2.8",
+        9  => "2.7",
         8  => "2.4",
         7  => "2.1",
         6  => "2.0",
@@ -181,7 +180,11 @@ pub async fn test_connection(
         tokio::join!(async { meta_task.await.map_err(|e| format!("[RUNTIME] join: {e}")) }, version_task);
 
     let (success, broker_count, error_message, latency_ms) = meta_join?;
-    let kafka_version = produce_ver.map(|v| produce_version_to_kafka(v).to_string());
+    let kafka_version = if success {
+        produce_ver.map(|v| produce_version_to_kafka(v).to_string())
+    } else {
+        None
+    };
 
     Ok(TestConnectionResult {
         success,

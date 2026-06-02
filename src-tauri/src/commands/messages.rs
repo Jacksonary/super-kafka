@@ -59,22 +59,13 @@ pub async fn fetch_messages(
         // We use high watermarks to detect EOF instead of enable.partition.eof,
         // which is incompatible with assign() (non-subscribe) mode on some brokers.
         // Only track partitions that actually have messages (high > start offset).
-        // DIAG: temporary diagnostics string, surfaced via Err when 0 messages.
-        let mut diag = String::new();
         let mut partition_high: std::collections::HashMap<i32, i64> =
             std::collections::HashMap::new();
         let mut tpl = TopicPartitionList::new();
         for &p in &target_partitions {
-            let (low, high) = match consumer.fetch_watermarks(&req.topic, p, timeout) {
-                Ok(v) => {
-                    diag.push_str(&format!("[p{p} wm_ok low={} high={}]", v.0, v.1));
-                    v
-                }
-                Err(e) => {
-                    diag.push_str(&format!("[p{p} wm_ERR {e}]"));
-                    (0, 0)
-                }
-            };
+            let (low, high) = consumer
+                .fetch_watermarks(&req.topic, p, timeout)
+                .map_err(|e| format!("[KAFKA-WATERMARK] partition {p}: {e}"))?;
             let offset = decide_offset(&req.fetch_mode, low, high, limit, target_partitions.len() as i64)?;
             tpl.add_partition_offset(&req.topic, p, offset)
                 .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
@@ -84,43 +75,34 @@ pub async fn fetch_messages(
                 Offset::Offset(o) => o,
                 _ => low,
             };
-            let inserted = high > start;
-            diag.push_str(&format!("[p{p} offset={offset:?} start={start} inserted={inserted}]"));
-            if inserted {
+            if high > start {
                 partition_high.insert(p, high);
             }
         }
         consumer
             .assign(&tpl)
-            .map_err(|e| format!("[KAFKA-CONSUMER] assign: {e} | DIAG {diag}"))?;
+            .map_err(|e| format!("[KAFKA-CONSUMER] assign: {e}"))?;
 
         // If all partitions are empty, return immediately
         if partition_high.is_empty() {
-            return Err(format!("[DIAG no-poll empty-partition_high] {diag}"));
+            return Ok(FetchMessagesResponse {
+                messages: vec![],
+                total_fetched: 0,
+                has_more: false,
+            });
         }
 
         let mut messages: Vec<KafkaMessage> = Vec::with_capacity(limit as usize);
         let started = std::time::Instant::now();
         let max_wait = Duration::from_secs(30);
         let mut consecutive_timeouts = 0usize;
-        let mut n_ok = 0usize;
-        let mut n_none = 0usize;
-        let mut n_skip = 0usize;
-        let mut first_err = String::new();
-        let exit_reason;
 
-        loop {
-            if messages.len() >= limit as usize {
-                exit_reason = "limit";
-                break;
-            }
+        while messages.len() < limit as usize {
             if started.elapsed() > max_wait {
-                exit_reason = "max_wait";
                 break;
             }
             match consumer.poll(POLL_TIMEOUT) {
                 Some(Ok(m)) => {
-                    n_ok += 1;
                     consecutive_timeouts = 0;
                     let next_offset = m.offset() + 1;
                     let high = partition_high.get(&m.partition()).copied().unwrap_or(0);
@@ -130,35 +112,23 @@ pub async fn fetch_messages(
                     if next_offset >= high {
                         partition_high.remove(&m.partition());
                         if partition_high.is_empty() {
-                            exit_reason = "all-consumed";
                             break;
                         }
                     }
                 }
-                Some(Err(e)) => {
-                    match &e {
-                        // NotImplemented is surfaced by librdkafka when it encounters
-                        // a compressed batch with an unsupported codec, or an unrecognised
-                        // message format version. It is non-fatal: librdkafka skips the
-                        // offending batch and continues. We mirror that behaviour.
-                        KafkaError::MessageConsumption(RDKafkaErrorCode::NotImplemented) => {
-                            n_skip += 1;
-                            if first_err.is_empty() {
-                                first_err = "NotImplemented".to_string();
-                            }
-                        }
-                        _ => return Err(format!("[KAFKA-CONSUMER] poll: {e} | DIAG {diag}")),
-                    }
-                }
+                Some(Err(e)) => match &e {
+                    // librdkafka surfaces NotImplemented for an unsupported codec or an
+                    // unrecognised message format. Non-fatal: skip the batch and continue.
+                    KafkaError::MessageConsumption(RDKafkaErrorCode::NotImplemented) => {}
+                    _ => return Err(format!("[KAFKA-CONSUMER] poll: {e}")),
+                },
                 None => {
-                    n_none += 1;
-                    // Only treat repeated timeouts as EOF *after* the first message has
+                    // Only treat repeated timeouts as EOF after the first message has
                     // arrived. Before that the consumer may still be connecting or
                     // fetching from a high offset, so early timeouts must not abort.
                     if !messages.is_empty() {
                         consecutive_timeouts += 1;
                         if consecutive_timeouts >= 3 {
-                            exit_reason = "eof-timeout";
                             break;
                         }
                     }
@@ -168,13 +138,6 @@ pub async fn fetch_messages(
 
         let total = messages.len() as i32;
         let has_more = total >= limit;
-
-        if total == 0 {
-            return Err(format!(
-                "[DIAG polled 0] {diag} | poll ok={n_ok} none={n_none} skip={n_skip} first_err={first_err} exit={exit_reason} elapsed={}ms",
-                started.elapsed().as_millis()
-            ));
-        }
 
         Ok(FetchMessagesResponse {
             messages,

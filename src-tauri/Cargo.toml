@@ -34,3 +34,9 @@ tauri-build = { version = "2", features = [] }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# Patched rdkafka-sys: enables WITH_SNAPPY in the cmake build so snappy-compressed
+# messages can be consumed (upstream cmake build leaves snappy disabled; breaks on
+# Windows). Fork only adds one line to build.rs; rdkafka-sys stays 4.10.0+2.12.1.
+[patch.crates-io]
+rdkafka-sys = { git = "https://github.com/Jacksonary/rust-rdkafka", rev = "33b6569e910e2404f322f6bca89fd5c10071859d" }

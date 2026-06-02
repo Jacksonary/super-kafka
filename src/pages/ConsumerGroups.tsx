@@ -11,7 +11,7 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { DeleteOutlined, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
@@ -21,11 +21,7 @@ import type {
   ConsumerGroupState,
   ConsumerGroupSummary,
   GroupMember,
-  PartitionLag,
-  TopicLag,
 } from "../types";
-import { formatNumber } from "../utils/format";
-import ResetOffsetModal from "../components/Group/ResetOffsetModal";
 
 const { Text } = Typography;
 
@@ -44,7 +40,6 @@ export default function ConsumerGroups() {
   const [groups, setGroups] = useState<ConsumerGroupSummary[]>([]);
   const [details, setDetails] = useState<Record<string, ConsumerGroupDetail>>({});
   const [loading, setLoading] = useState(false);
-  const [resetTarget, setResetTarget] = useState<{ groupId: string; topics: string[] } | null>(null);
 
   const load = useCallback(async () => {
     if (!currentClusterId) return;
@@ -65,16 +60,13 @@ export default function ConsumerGroups() {
   }, [load]);
 
   const loadDetail = useCallback(
-    async (groupId: string): Promise<ConsumerGroupDetail | null> => {
-      if (!currentClusterId) return null;
-      if (details[groupId]) return details[groupId];
+    async (groupId: string) => {
+      if (!currentClusterId || details[groupId]) return;
       try {
         const d = await api.getConsumerGroupDetail(currentClusterId, groupId);
         setDetails((prev) => ({ ...prev, [groupId]: d }));
-        return d;
       } catch (e) {
         message.error(String(e));
-        return null;
       }
     },
     [currentClusterId, details, message],
@@ -99,7 +91,11 @@ export default function ConsumerGroups() {
       title: "Group ID",
       dataIndex: "group_id",
       key: "group_id",
-      render: (g: string) => <Text code style={{ fontSize: 12 }}>{g}</Text>,
+      render: (g: string) => (
+        <Text code style={{ fontSize: 12 }}>
+          {g}
+        </Text>
+      ),
     },
     {
       title: "State",
@@ -110,19 +106,6 @@ export default function ConsumerGroups() {
     },
     { title: "Members", dataIndex: "member_count", key: "member_count", width: 100, align: "right" },
     {
-      title: "Total Lag",
-      dataIndex: "total_lag",
-      key: "total_lag",
-      width: 130,
-      align: "right",
-      render: (v: number | null) =>
-        v == null ? <Text type="secondary">-</Text> : (
-          <Text type={v > 10000 ? "danger" : v > 1000 ? "warning" : undefined}>
-            {formatNumber(v)}
-          </Text>
-        ),
-    },
-    {
       title: "Coordinator",
       dataIndex: "coordinator_id",
       key: "coordinator_id",
@@ -132,29 +115,16 @@ export default function ConsumerGroups() {
     {
       title: "Actions",
       key: "actions",
-      width: 220,
+      width: 100,
       render: (_, g) => (
-        <Space size={4}>
-          <Button
-            size="small"
-            icon={<ThunderboltOutlined />}
-            onClick={async () => {
-              const det = await loadDetail(g.group_id);
-              const topics = det ? det.topic_lag.map((t) => t.topic) : [];
-              setResetTarget({ groupId: g.group_id, topics });
-            }}
-          >
-            Reset Offset
-          </Button>
-          <Popconfirm
-            title="Delete this group?"
-            description="The group must be in Empty/Dead state."
-            onConfirm={() => handleDelete(g.group_id)}
-            okButtonProps={{ danger: true }}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
+        <Popconfirm
+          title="Delete this group?"
+          description="The group must be in Empty/Dead state."
+          onConfirm={() => handleDelete(g.group_id)}
+          okButtonProps={{ danger: true }}
+        >
+          <Button size="small" danger icon={<DeleteOutlined />} />
+        </Popconfirm>
       ),
     },
   ];
@@ -172,6 +142,12 @@ export default function ConsumerGroups() {
         </Button>
       }
     >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="Consumption lag & offset reset are now per-topic — open a topic's detail → Consumer Groups tab."
+      />
       <Table<ConsumerGroupSummary>
         rowKey="group_id"
         size="middle"
@@ -192,22 +168,16 @@ export default function ConsumerGroups() {
                 </div>
               );
             }
-            return (
-              <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                {detail.members.length > 0 && <MembersTable members={detail.members} />}
-                <TopicLagTable topicLag={detail.topic_lag} />
-              </Space>
-            );
+            if (detail.members.length === 0) {
+              return (
+                <div style={{ padding: 12 }}>
+                  <Text type="secondary">No active members (group is {detail.state}).</Text>
+                </div>
+              );
+            }
+            return <MembersTable members={detail.members} />;
           },
         }}
-      />
-
-      <ResetOffsetModal
-        open={resetTarget !== null}
-        clusterId={currentClusterId}
-        groupId={resetTarget?.groupId ?? ""}
-        topics={resetTarget?.topics ?? []}
-        onClose={() => setResetTarget(null)}
       />
     </Card>
   );
@@ -244,47 +214,5 @@ function MembersTable({ members }: { members: GroupMember[] }) {
         ]}
       />
     </Card>
-  );
-}
-
-function TopicLagTable({ topicLag }: { topicLag: TopicLag[] }) {
-  return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
-      {topicLag.map((tl) => (
-        <Card key={tl.topic} size="small" title={<Text code>{tl.topic}</Text>} extra={<Text type="secondary">total lag: {formatNumber(tl.total_lag)}</Text>}>
-          <Table<PartitionLag>
-            size="small"
-            rowKey="partition"
-            pagination={false}
-            dataSource={tl.partitions}
-            columns={[
-              { title: "Partition", dataIndex: "partition", width: 100 },
-              {
-                title: "Current Offset",
-                dataIndex: "current_offset",
-                align: "right",
-                render: formatNumber,
-              },
-              {
-                title: "End Offset",
-                dataIndex: "log_end_offset",
-                align: "right",
-                render: formatNumber,
-              },
-              {
-                title: "Lag",
-                dataIndex: "lag",
-                align: "right",
-                render: (v: number) => (
-                  <Text type={v > 1000 ? "danger" : v > 100 ? "warning" : undefined}>
-                    {formatNumber(v)}
-                  </Text>
-                ),
-              },
-            ]}
-          />
-        </Card>
-      ))}
-    </Space>
   );
 }

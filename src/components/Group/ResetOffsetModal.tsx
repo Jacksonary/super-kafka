@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { DatePicker, Form, InputNumber, Modal, Select, App as AntdApp } from "antd";
-import type { Dayjs } from "dayjs";
+import { Form, InputNumber, Modal, Select, App as AntdApp } from "antd";
 import { api } from "../../api";
 import type { ResetOffsetStrategy } from "../../types";
 
@@ -9,43 +8,58 @@ interface Props {
   clusterId: string;
   groupId: string;
   topics: string[];
+  /** Single-partition reset mode: lock to this partition (pass topics=[theTopic]). */
+  fixedPartition?: number;
   onClose: () => void;
 }
 
-type Strategy = "earliest" | "latest" | "to_offset" | "to_timestamp";
+type Strategy = "earliest" | "latest" | "to_offset";
 
-export default function ResetOffsetModal({ open, clusterId, groupId, topics, onClose }: Props) {
+export default function ResetOffsetModal({
+  open,
+  clusterId,
+  groupId,
+  topics,
+  fixedPartition,
+  onClose,
+}: Props) {
   const { message } = AntdApp.useApp();
   const [strategy, setStrategy] = useState<Strategy>("earliest");
   const [topic, setTopic] = useState<string | null>(null);
   const [partition, setPartition] = useState<number>(0);
   const [offset, setOffset] = useState<number>(0);
-  const [timestamp, setTimestamp] = useState<Dayjs | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const single = fixedPartition != null;
 
   useEffect(() => {
     if (!open) return;
     setStrategy("earliest");
     setTopic(topics[0] ?? null);
-    setPartition(0);
+    setPartition(fixedPartition ?? 0);
     setOffset(0);
-    setTimestamp(null);
-  }, [open, topics]);
+  }, [open, topics, fixedPartition]);
 
   async function handleOk() {
     if (!topic) {
       message.warning("Select a topic");
       return;
     }
+    const effPartition = fixedPartition ?? partition;
     let s: ResetOffsetStrategy;
     if (strategy === "earliest") s = { type: "earliest" };
     else if (strategy === "latest") s = { type: "latest" };
-    else if (strategy === "to_offset") s = { type: "to_offset", partition, offset };
-    else s = { type: "to_timestamp", timestamp_ms: timestamp?.valueOf() ?? Date.now() };
+    else s = { type: "to_offset", partition: effPartition, offset };
 
     setSubmitting(true);
     try {
-      await api.resetOffset({ cluster_id: clusterId, group_id: groupId, topic, strategy: s });
+      await api.resetOffset({
+        cluster_id: clusterId,
+        group_id: groupId,
+        topic,
+        partition: fixedPartition,
+        strategy: s,
+      });
       message.success("Offset reset");
       onClose();
     } catch (e) {
@@ -57,7 +71,11 @@ export default function ResetOffsetModal({ open, clusterId, groupId, topics, onC
 
   return (
     <Modal
-      title={`Reset Offset — ${groupId}`}
+      title={
+        single
+          ? `Reset Offset — ${groupId} · partition ${fixedPartition}`
+          : `Reset Offset — ${groupId}`
+      }
       open={open}
       onOk={handleOk}
       onCancel={onClose}
@@ -69,6 +87,7 @@ export default function ResetOffsetModal({ open, clusterId, groupId, topics, onC
           <Select
             value={topic ?? undefined}
             onChange={setTopic}
+            disabled={single}
             options={topics.map((t) => ({ value: t, label: t }))}
             placeholder="Select topic"
           />
@@ -81,20 +100,21 @@ export default function ResetOffsetModal({ open, clusterId, groupId, topics, onC
               { value: "earliest", label: "Earliest" },
               { value: "latest", label: "Latest" },
               { value: "to_offset", label: "To specific offset" },
-              { value: "to_timestamp", label: "To timestamp" },
             ]}
           />
         </Form.Item>
         {strategy === "to_offset" && (
           <>
-            <Form.Item label="Partition">
-              <InputNumber
-                min={0}
-                value={partition}
-                onChange={(v) => setPartition(v ?? 0)}
-                style={{ width: "100%" }}
-              />
-            </Form.Item>
+            {!single && (
+              <Form.Item label="Partition">
+                <InputNumber
+                  min={0}
+                  value={partition}
+                  onChange={(v) => setPartition(v ?? 0)}
+                  style={{ width: "100%" }}
+                />
+              </Form.Item>
+            )}
             <Form.Item label="Offset">
               <InputNumber
                 min={0}
@@ -104,16 +124,6 @@ export default function ResetOffsetModal({ open, clusterId, groupId, topics, onC
               />
             </Form.Item>
           </>
-        )}
-        {strategy === "to_timestamp" && (
-          <Form.Item label="Timestamp">
-            <DatePicker
-              showTime
-              value={timestamp ?? undefined}
-              onChange={setTimestamp}
-              style={{ width: "100%" }}
-            />
-          </Form.Item>
         )}
       </Form>
     </Modal>

@@ -22,6 +22,7 @@ import { useClusterStore } from "../store/clusterStore";
 import type { PartitionInfo, TopicConfig, TopicDetail as TopicDetailType } from "../types";
 import { formatNumber } from "../utils/format";
 import MessageBrowser from "./MessageBrowser";
+import TopicConsumerGroups from "../components/Topic/TopicConsumerGroups";
 
 const { Text, Title } = Typography;
 
@@ -258,6 +259,13 @@ export default function TopicDetail() {
               key: "messages",
               label: "Messages",
               children: <MessageBrowser embeddedTopic={topicName} />,
+            },
+            {
+              key: "consumer-groups",
+              label: "Consumer Groups",
+              children: (
+                <TopicConsumerGroups clusterId={currentClusterId} topic={topicName} />
+              ),
             },
           ]}
         />

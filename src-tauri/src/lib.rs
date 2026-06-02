@@ -46,6 +46,8 @@ pub fn run() {
             commands::groups::get_consumer_group_detail,
             commands::groups::delete_consumer_group,
             commands::groups::reset_offset,
+            commands::groups::list_topic_consumer_groups,
+            commands::groups::get_topic_group_partition_lag,
             commands::schema::list_schema_subjects,
             commands::schema::get_schema_version,
             commands::schema::delete_schema_version,

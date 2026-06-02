@@ -194,9 +194,17 @@ export interface TopicLag {
 
 export interface PartitionLag {
   partition: number;
+  start_offset: number;
   current_offset: number;
   log_end_offset: number;
   lag: number;
+}
+
+// Topic-centric view: a consumer group that consumes a given topic.
+export interface TopicConsumerGroup {
+  group_id: string;
+  state: ConsumerGroupState;
+  total_lag: number;
 }
 
 export type ResetOffsetStrategy =
@@ -209,6 +217,8 @@ export interface ResetOffsetRequest {
   cluster_id: string;
   group_id: string;
   topic: string;
+  // null/undefined = all partitions; a number = only that partition.
+  partition?: number | null;
   strategy: ResetOffsetStrategy;
 }
 

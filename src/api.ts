@@ -263,6 +263,7 @@ function buildGroupDetail(clusterId: string, groupId: string): T.ConsumerGroupDe
       total_lag: 800,
       partitions: [0, 1, 2].map((p) => ({
         partition: p,
+        start_offset: 0,
         current_offset: 10_000 + p * 100,
         log_end_offset: 10_300 + p * 100,
         lag: 300 - p * 50,
@@ -273,6 +274,7 @@ function buildGroupDetail(clusterId: string, groupId: string): T.ConsumerGroupDe
       total_lag: 440,
       partitions: [0, 1, 2, 3].map((p) => ({
         partition: p,
+        start_offset: 0,
         current_offset: 50_000 + p * 200,
         log_end_offset: 50_110 + p * 200,
         lag: 110,
@@ -558,6 +560,26 @@ const mockApi = {
   async resetOffset(_req: T.ResetOffsetRequest): Promise<{ ok: boolean }> {
     await sleep(120);
     return { ok: true };
+  },
+
+  async listTopicConsumerGroups(
+    clusterId: string,
+    _topic: string,
+  ): Promise<T.TopicConsumerGroup[]> {
+    await sleep(120);
+    const groups = GROUPS_BY_CLUSTER[clusterId] ?? [];
+    return groups.map((g) => ({ group_id: g.group_id, state: g.state, total_lag: 0 }));
+  },
+
+  async getTopicGroupPartitionLag(
+    _clusterId: string,
+    _topic: string,
+    _groupId: string,
+  ): Promise<T.PartitionLag[]> {
+    await sleep(100);
+    return [
+      { partition: 0, start_offset: 0, current_offset: 50, log_end_offset: 100, lag: 50 },
+    ];
   },
 
   async listSchemaSubjects(clusterId: string): Promise<T.SchemaSubject[]> {
@@ -866,6 +888,14 @@ const realApi: typeof mockApi = {
       req: toBackendResetOffsetRequest(req),
     });
     return { ok: r.ok ?? true };
+  },
+
+  async listTopicConsumerGroups(clusterId, topic) {
+    return tauriInvoke("list_topic_consumer_groups", { clusterId, topic });
+  },
+
+  async getTopicGroupPartitionLag(clusterId, topic, groupId) {
+    return tauriInvoke("get_topic_group_partition_lag", { clusterId, topic, groupId });
   },
 
   async listSchemaSubjects(clusterId) {

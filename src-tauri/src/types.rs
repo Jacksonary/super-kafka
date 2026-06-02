@@ -178,9 +178,18 @@ pub struct TopicLag {
 #[derive(Debug, Serialize)]
 pub struct PartitionLag {
     pub partition: i32,
+    pub start_offset: i64,
     pub current_offset: i64,
     pub log_end_offset: i64,
     pub lag: i64,
+}
+
+/// Topic-centric view of a consumer group that consumes a given topic.
+#[derive(Debug, Serialize)]
+pub struct TopicConsumerGroup {
+    pub group_id: String,
+    pub state: String,
+    pub total_lag: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,6 +197,8 @@ pub struct ResetOffsetRequest {
     pub cluster_id: String,
     pub group_id: String,
     pub topic: String,
+    /// None = all partitions of the topic; Some(p) = only partition p.
+    pub partition: Option<i32>,
     pub strategy: serde_json::Value,
 }
 

@@ -1,8 +1,8 @@
 use crate::config;
 use crate::kafka_client::build_client_config;
 use crate::types::{
-    AssignedPartition, ConsumerGroupDetail, ConsumerGroupSummary, GroupMember, PartitionLag,
-    ResetOffsetRequest, TopicLag,
+    AssignedPartition, ClusterConfig, ConsumerGroupDetail, ConsumerGroupSummary, GroupMember,
+    PartitionLag, ResetOffsetRequest, TopicConsumerGroup, TopicLag,
 };
 use crate::AppState;
 use rdkafka::admin::AdminOptions;
@@ -128,7 +128,7 @@ pub async fn get_consumer_group_detail(
                     Offset::Offset(o) => o,
                     _ => -1,
                 };
-                let (_low, high) = bundle
+                let (low, high) = bundle
                     .admin
                     .inner()
                     .fetch_watermarks(topic, partition, timeout)
@@ -137,6 +137,7 @@ pub async fn get_consumer_group_detail(
                 total_lag += lag;
                 partition_lags.push(PartitionLag {
                     partition,
+                    start_offset: low,
                     current_offset: current,
                     log_end_offset: high,
                     lag,
@@ -289,6 +290,28 @@ pub async fn reset_offset(
             .create()
             .map_err(|e| format!("[KAFKA-CONSUMER] create: {e}"))?;
 
+        // Resetting offsets is only reliable when no active member holds the
+        // partition (a live consumer would overwrite our commit). Require the
+        // group to be Empty/Dead.
+        let group_list = consumer
+            .fetch_group_list(Some(&req.group_id), timeout)
+            .map_err(|e| format!("[KAFKA-GROUPS] {e}"))?;
+        // If the group isn't registered with the coordinator (not found here), allow
+        // the reset — it effectively pre-sets offsets for a not-yet-active group.
+        if let Some(g) = group_list
+            .groups()
+            .iter()
+            .find(|g| g.name() == req.group_id)
+        {
+            let state = g.state();
+            if state != "Empty" && state != "Dead" {
+                return Err(format!(
+                    "[KAFKA-RESET] group `{}` is `{state}`; offsets can only be reset when the group is Empty — stop all consumers first",
+                    req.group_id
+                ));
+            }
+        }
+
         let meta = consumer
             .fetch_metadata(Some(&req.topic), timeout)
             .map_err(|e| format!("[KAFKA-METADATA] {e}"))?;
@@ -298,6 +321,20 @@ pub async fn reset_offset(
             .find(|t| t.name() == req.topic)
             .ok_or_else(|| format!("[KAFKA] topic `{}` not found", req.topic))?;
 
+        // Target a single partition if requested, otherwise every partition.
+        let target_parts: Vec<i32> = match req.partition {
+            Some(p) => {
+                if !topic_meta.partitions().iter().any(|tp| tp.id() == p) {
+                    return Err(format!(
+                        "[KAFKA] partition {p} not found in topic `{}`",
+                        req.topic
+                    ));
+                }
+                vec![p]
+            }
+            None => topic_meta.partitions().iter().map(|tp| tp.id()).collect(),
+        };
+
         let strategy = req
             .strategy
             .get("type")
@@ -305,9 +342,9 @@ pub async fn reset_offset(
             .unwrap_or("earliest");
 
         let mut tpl = TopicPartitionList::new();
-        for p in topic_meta.partitions() {
+        for pid in target_parts {
             let (low, high) = consumer
-                .fetch_watermarks(&req.topic, p.id(), timeout)
+                .fetch_watermarks(&req.topic, pid, timeout)
                 .unwrap_or((0, 0));
             let offset = match strategy {
                 "earliest" => Offset::Offset(low),
@@ -326,7 +363,7 @@ pub async fn reset_offset(
                 }
                 _ => Offset::Offset(low),
             };
-            tpl.add_partition_offset(&req.topic, p.id(), offset)
+            tpl.add_partition_offset(&req.topic, pid, offset)
                 .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
         }
 
@@ -334,6 +371,152 @@ pub async fn reset_offset(
             .commit(&tpl, rdkafka::consumer::CommitMode::Sync)
             .map_err(|e| format!("[KAFKA-COMMIT] {e}"))?;
         Ok(json!({ "ok": true }))
+    })
+    .await
+    .map_err(|e| format!("[RUNTIME] join: {e}"))?
+}
+
+/// Fetch a group's committed offsets and lag for every partition of `topic`.
+/// Works for Empty groups too: committed offsets are read from
+/// __consumer_offsets, not from live member assignment.
+fn fetch_group_topic_lag(
+    cluster: &ClusterConfig,
+    password: Option<&str>,
+    topic: &str,
+    group_id: &str,
+    timeout: Duration,
+) -> Result<Vec<PartitionLag>, String> {
+    let mut cfg = build_client_config(cluster, password);
+    cfg.set("group.id", group_id);
+    cfg.set("enable.auto.commit", "false");
+    let consumer: BaseConsumer = cfg
+        .create()
+        .map_err(|e| format!("[KAFKA-CONSUMER] create: {e}"))?;
+
+    let meta = consumer
+        .fetch_metadata(Some(topic), timeout)
+        .map_err(|e| format!("[KAFKA-METADATA] {e}"))?;
+    let topic_meta = meta
+        .topics()
+        .iter()
+        .find(|t| t.name() == topic)
+        .ok_or_else(|| format!("[KAFKA] topic `{topic}` not found"))?;
+
+    let mut tpl = TopicPartitionList::new();
+    for p in topic_meta.partitions() {
+        tpl.add_partition_offset(topic, p.id(), Offset::Invalid)
+            .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+    }
+    let committed = consumer
+        .committed_offsets(tpl, timeout)
+        .map_err(|e| format!("[KAFKA] committed: {e}"))?;
+
+    let mut out = Vec::new();
+    for elem in committed.elements() {
+        let partition = elem.partition();
+        let current = match elem.offset() {
+            Offset::Offset(o) => o,
+            _ => -1,
+        };
+        let (low, high) = consumer
+            .fetch_watermarks(topic, partition, timeout)
+            .unwrap_or((0, 0));
+        let lag = if current < 0 { high } else { (high - current).max(0) };
+        out.push(PartitionLag {
+            partition,
+            start_offset: low,
+            current_offset: current,
+            log_end_offset: high,
+            lag,
+        });
+    }
+    out.sort_by_key(|p| p.partition);
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn get_topic_group_partition_lag(
+    state: State<'_, AppState>,
+    cluster_id: String,
+    topic: String,
+    group_id: String,
+) -> Result<Vec<PartitionLag>, String> {
+    let cluster = state
+        .pool
+        .get_config(&cluster_id)
+        .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
+    let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+    let password = config::load_sasl_password(&cluster_id).ok().flatten();
+
+    tokio::task::spawn_blocking(move || {
+        fetch_group_topic_lag(&cluster, password.as_deref(), &topic, &group_id, timeout)
+    })
+    .await
+    .map_err(|e| format!("[RUNTIME] join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn list_topic_consumer_groups(
+    state: State<'_, AppState>,
+    cluster_id: String,
+    topic: String,
+) -> Result<Vec<TopicConsumerGroup>, String> {
+    let cluster = state
+        .pool
+        .get_config(&cluster_id)
+        .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
+    let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+    let pool = state.pool.clone();
+    let id = cluster_id.clone();
+    let password = config::load_sasl_password(&cluster_id).ok().flatten();
+
+    tokio::task::spawn_blocking(move || -> Result<Vec<TopicConsumerGroup>, String> {
+        let bundle = pool.get_or_create(&id)?;
+        let groups = bundle
+            .admin
+            .inner()
+            .fetch_group_list(None, timeout)
+            .map_err(|e| format!("[KAFKA-GROUPS] {e}"))?;
+
+        let mut out = Vec::new();
+        for g in groups.groups() {
+            // Only consumer groups (skip connect / other protocol types).
+            let ptype = g.protocol_type();
+            if !ptype.is_empty() && ptype != "consumer" {
+                continue;
+            }
+            let group_id = g.name();
+            // A single group's transient failure shouldn't abort the whole list.
+            let lags =
+                match fetch_group_topic_lag(&cluster, password.as_deref(), &topic, group_id, timeout)
+                {
+                    Ok(l) => l,
+                    // One group's failure shouldn't abort the whole list, but surface it.
+                    Err(e) => {
+                        eprintln!("[list_topic_consumer_groups] skip group `{group_id}`: {e}");
+                        continue;
+                    }
+                };
+            // Considered a consumer of this topic iff it has a committed offset on some
+            // partition. Limitation: a group whose committed offsets were purged by
+            // `offsets.retention.minutes`, or that never committed here, can't be
+            // detected this way.
+            if !lags.iter().any(|p| p.current_offset >= 0) {
+                continue;
+            }
+            let total_lag: i64 = lags
+                .iter()
+                .filter(|p| p.current_offset >= 0)
+                .map(|p| p.lag)
+                .sum();
+            out.push(TopicConsumerGroup {
+                group_id: group_id.to_string(),
+                state: g.state().to_string(),
+                total_lag,
+            });
+        }
+        out.sort_by(|a, b| a.group_id.cmp(&b.group_id));
+        Ok(out)
     })
     .await
     .map_err(|e| format!("[RUNTIME] join: {e}"))?

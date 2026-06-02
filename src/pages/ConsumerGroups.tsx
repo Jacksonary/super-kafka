@@ -185,34 +185,32 @@ export default function ConsumerGroups() {
 
 function MembersTable({ members }: { members: GroupMember[] }) {
   return (
-    <Card size="small" title={<Text strong>Members ({members.length})</Text>}>
-      <Table<GroupMember>
-        size="small"
-        rowKey="member_id"
-        pagination={false}
-        dataSource={members}
-        columns={[
-          { title: "Member ID", dataIndex: "member_id", key: "member_id", ellipsis: true },
-          { title: "Client ID", dataIndex: "client_id", key: "client_id", ellipsis: true },
-          { title: "Host", dataIndex: "client_host", key: "client_host", width: 160 },
-          {
-            title: "Assigned Partitions",
-            key: "assigned_partitions",
-            render: (_: unknown, m: GroupMember) =>
-              m.assigned_partitions.length === 0 ? (
-                <Text type="secondary">none</Text>
-              ) : (
-                <Space size={4} wrap>
-                  {m.assigned_partitions.map((ap: AssignedPartition) => (
-                    <Tag key={`${ap.topic}-${ap.partition}`} bordered={false}>
-                      {ap.topic}:{ap.partition}
-                    </Tag>
-                  ))}
-                </Space>
-              ),
-          },
-        ]}
-      />
-    </Card>
+    <Table<GroupMember>
+      size="small"
+      rowKey="member_id"
+      pagination={false}
+      dataSource={members}
+      columns={[
+        { title: "Member ID", dataIndex: "member_id", key: "member_id", ellipsis: true },
+        { title: "Client ID", dataIndex: "client_id", key: "client_id", ellipsis: true },
+        { title: "Host", dataIndex: "client_host", key: "client_host", width: 160 },
+        {
+          title: "Assigned Partitions",
+          key: "assigned_partitions",
+          render: (_: unknown, m: GroupMember) =>
+            m.assigned_partitions.length === 0 ? (
+              <Text type="secondary">none</Text>
+            ) : (
+              <Space size={4} wrap>
+                {m.assigned_partitions.map((ap: AssignedPartition) => (
+                  <Tag key={`${ap.topic}-${ap.partition}`} bordered={false}>
+                    {ap.topic}:{ap.partition}
+                  </Tag>
+                ))}
+              </Space>
+            ),
+        },
+      ]}
+    />
   );
 }

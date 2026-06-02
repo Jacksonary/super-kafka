@@ -143,7 +143,7 @@ export default function MainLayout() {
               style={{
                 width: 32,
                 height: 32,
-                borderRadius: "50%",
+                borderRadius: 8,
                 overflow: "hidden",
                 flexShrink: 0,
                 border: "1.5px solid rgba(0,212,255,0.5)",

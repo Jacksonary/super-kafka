@@ -189,7 +189,7 @@ export default function MainLayout() {
           <div style={{ padding: 12, borderBottom: "1px solid #1f242c", flexShrink: 0 }}>
             <Select
               value={currentClusterId ?? undefined}
-              onChange={(v) => setCurrentClusterId(v)}
+              onChange={(v) => { setCurrentClusterId(v); navigate(selectedKey); }}
               placeholder="Select a cluster"
               style={{ width: "100%" }}
               options={clusters.map((c) => ({ value: c.id, label: c.name }))}

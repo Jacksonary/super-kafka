@@ -4,12 +4,23 @@ pub mod config;
 pub mod kafka_client;
 pub mod types;
 
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use crate::cluster_pool::ClusterPool;
 
+pub struct LiveSession {
+    pub running: Arc<AtomicBool>,
+    #[allow(dead_code)]
+    pub handle: std::thread::JoinHandle<()>,
+}
+
 pub struct AppState {
     pub pool: Arc<ClusterPool>,
+    pub live_sessions: Mutex<HashMap<String, LiveSession>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,7 +42,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState { pool })
+        .manage(AppState {
+            pool,
+            live_sessions: Mutex::new(HashMap::new()),
+        })
         .invoke_handler(tauri::generate_handler![
             commands::clusters::list_clusters,
             commands::clusters::save_cluster,
@@ -48,6 +62,8 @@ pub fn run() {
             commands::topics::add_partitions,
             commands::messages::fetch_messages,
             commands::messages::produce_message,
+            commands::messages::start_live_consume,
+            commands::messages::stop_live_consume,
             commands::groups::list_consumer_groups,
             commands::groups::get_consumer_group_detail,
             commands::groups::delete_consumer_group,

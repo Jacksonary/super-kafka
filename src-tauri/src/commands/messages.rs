@@ -4,13 +4,15 @@ use crate::types::{
     FetchMessagesRequest, FetchMessagesResponse, KafkaMessage, MessageHeader,
     ProduceMessageRequest,
 };
-use crate::AppState;
+use crate::{AppState, LiveSession};
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, Headers, Message, OwnedHeaders, Timestamp};
 use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
 
@@ -310,5 +312,111 @@ pub async fn produce_message(
     })
     .await
     .map_err(|e| format!("[RUNTIME] join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn start_live_consume(
+    state: State<'_, AppState>,
+    req: FetchMessagesRequest,
+    session_id: String,
+    channel: tauri::ipc::Channel<KafkaMessage>,
+) -> Result<(), String> {
+    let cluster = state
+        .pool
+        .get_config(&req.cluster_id)
+        .ok_or_else(|| format!("[CONFIG] cluster `{}` not found", req.cluster_id))?;
+    let password = config::load_sasl_password(&req.cluster_id).ok().flatten();
+    let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+
+    // 停掉同 session_id 的旧实例（前端重连场景）
+    if let Some(old) = state.live_sessions.lock().remove(&session_id) {
+        old.running.store(false, Ordering::Release);
+    }
+
+    let running = Arc::new(AtomicBool::new(true));
+    let running_for_thread = running.clone();
+    let session_id_for_log = session_id.clone();
+    let topic = req.topic.clone();
+    let partition_filter = req.partition;
+
+    let handle = std::thread::spawn(move || {
+        let mut cfg = build_client_config(&cluster, password.as_deref());
+        cfg.set("group.id", format!("super-kafka-live-{}", uuid::Uuid::new_v4()));
+        cfg.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = match cfg.create() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[KAFKA-LIVE] create consumer: {e}");
+                return;
+            }
+        };
+
+        let target_partitions: Vec<i32> = match partition_filter {
+            Some(p) => vec![p],
+            None => match consumer.fetch_metadata(Some(&topic), timeout) {
+                Ok(meta) => meta
+                    .topics()
+                    .iter()
+                    .find(|t| t.name() == topic)
+                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
+                    .unwrap_or_default(),
+                Err(e) => {
+                    eprintln!("[KAFKA-LIVE] fetch_metadata: {e}");
+                    return;
+                }
+            },
+        };
+
+        let mut tpl = TopicPartitionList::new();
+        for &p in &target_partitions {
+            if let Err(e) = tpl.add_partition_offset(&topic, p, Offset::End) {
+                eprintln!("[KAFKA-LIVE] tpl add partition {p}: {e}");
+                return;
+            }
+        }
+        if let Err(e) = consumer.assign(&tpl) {
+            eprintln!("[KAFKA-LIVE] assign: {e}");
+            return;
+        }
+
+        loop {
+            if !running_for_thread.load(Ordering::Acquire) {
+                break;
+            }
+            match consumer.poll(Duration::from_millis(200)) {
+                Some(Ok(m)) => {
+                    if channel.send(borrowed_to_kafka_message(&m)).is_err() {
+                        break; // 前端已关闭/导航离开
+                    }
+                }
+                Some(Err(KafkaError::MessageConsumption(RDKafkaErrorCode::NotImplemented))) => {}
+                Some(Err(e)) => {
+                    eprintln!("[KAFKA-LIVE] poll error: {e}");
+                }
+                None => {}
+            }
+        }
+
+        eprintln!("[KAFKA-LIVE] consumer thread exiting: {session_id_for_log}");
+    });
+
+    state.live_sessions.lock().insert(
+        session_id,
+        LiveSession { running, handle },
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_live_consume(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    if let Some(session) = state.live_sessions.lock().remove(&session_id) {
+        session.running.store(false, Ordering::Release);
+    }
+    Ok(())
 }
 

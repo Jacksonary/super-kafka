@@ -436,6 +436,17 @@ const mockApi = {
     };
   },
 
+  async startLiveConsume(
+    _req: T.FetchMessagesRequest,
+    _sessionId: string,
+    _onMessage: (msg: T.KafkaMessage) => void,
+  ): Promise<unknown> {
+    // mock 模式不支持实时消费
+    return null;
+  },
+
+  async stopLiveConsume(_sessionId: string): Promise<void> {},
+
   async listConsumerGroups(clusterId: string): Promise<T.ConsumerGroupSummary[]> {
     await sleep(120);
     return [...(GROUPS_BY_CLUSTER[clusterId] ?? [])];
@@ -679,6 +690,29 @@ const realApi: typeof mockApi = {
       partition: req.partition ?? -1,
       offset: -1,
     };
+  },
+
+  async startLiveConsume(req, sessionId, onMessage) {
+    const { Channel } = await import("@tauri-apps/api/core");
+    const ch = new Channel<T.KafkaMessage>();
+    ch.onmessage = (raw) => {
+      onMessage({
+        ...raw,
+        timestamp_type: mapTimestampType(raw.timestamp_type),
+        value_encoding: mapEncoding(raw.value_encoding),
+        headers: (raw.headers ?? []).map((h) => ({ key: h.key, value: h.value ?? null })),
+      });
+    };
+    await tauriInvoke<void>("start_live_consume", {
+      req: { ...req, fetch_mode: toBackendFetchMode(req.fetch_mode) },
+      sessionId,
+      channel: ch,
+    });
+    return ch;
+  },
+
+  async stopLiveConsume(sessionId) {
+    await tauriInvoke<void>("stop_live_consume", { sessionId });
   },
 
   async listConsumerGroups(clusterId) {

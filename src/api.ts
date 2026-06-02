@@ -26,9 +26,6 @@ const MOCK_CLUSTERS: T.ClusterConfig[] = [
     ssl_ca_cert_path: null,
     ssl_client_cert_path: null,
     ssl_client_key_path: null,
-    schema_registry_url: "http://localhost:8081",
-    schema_registry_username: null,
-    connect_url: "http://localhost:8083",
     request_timeout_ms: 30000,
     created_at: Date.now() - 1000 * 60 * 60 * 24 * 30,
   },
@@ -42,9 +39,6 @@ const MOCK_CLUSTERS: T.ClusterConfig[] = [
     ssl_ca_cert_path: "/etc/ssl/certs/stg-ca.pem",
     ssl_client_cert_path: null,
     ssl_client_key_path: null,
-    schema_registry_url: "https://schema-registry.stg.example.com",
-    schema_registry_username: "stg-app",
-    connect_url: "https://kafka-connect.stg.example.com",
     request_timeout_ms: 30000,
     created_at: Date.now() - 1000 * 60 * 60 * 24 * 7,
   },
@@ -58,9 +52,6 @@ const MOCK_CLUSTERS: T.ClusterConfig[] = [
     ssl_ca_cert_path: "/etc/ssl/certs/prod-ca.pem",
     ssl_client_cert_path: "/etc/ssl/certs/prod-client.pem",
     ssl_client_key_path: "/etc/ssl/private/prod-client.key",
-    schema_registry_url: "https://schema-registry.prod.example.com",
-    schema_registry_username: null,
-    connect_url: null,
     request_timeout_ms: 60000,
     created_at: Date.now() - 1000 * 60 * 60 * 24 * 90,
   },
@@ -293,99 +284,6 @@ function buildGroupDetail(clusterId: string, groupId: string): T.ConsumerGroupDe
   };
 }
 
-const SCHEMAS_BY_CLUSTER: Record<string, T.SchemaSubject[]> = {
-  "cluster-1": [
-    { name: "user-events-value", version_count: 3, latest_version: 3, schema_type: "AVRO" },
-    { name: "order-updates-value", version_count: 5, latest_version: 5, schema_type: "AVRO" },
-    { name: "payment-tx-value", version_count: 1, latest_version: 1, schema_type: "JSON" },
-  ],
-  "cluster-2": [
-    { name: "user-events-value", version_count: 7, latest_version: 7, schema_type: "AVRO" },
-    { name: "user-events-key", version_count: 1, latest_version: 1, schema_type: "AVRO" },
-    { name: "order-updates-value", version_count: 12, latest_version: 12, schema_type: "PROTOBUF" },
-    { name: "notifications-value", version_count: 4, latest_version: 4, schema_type: "JSON" },
-    { name: "user-profile-cdc-value", version_count: 2, latest_version: 2, schema_type: "AVRO" },
-  ],
-  "cluster-3": [],
-};
-
-const AVRO_USER_EVENTS = JSON.stringify({
-  type: "record",
-  name: "UserEvent",
-  namespace: "com.example.events",
-  fields: [
-    { name: "user_id", type: "string" },
-    { name: "event", type: { type: "enum", name: "EventType", symbols: ["login", "logout", "purchase"] } },
-    { name: "ts", type: "long", logicalType: "timestamp-millis" },
-    { name: "metadata", type: ["null", { type: "map", values: "string" }], default: null },
-  ],
-}, null, 2);
-
-const JSON_PAYMENT_TX = JSON.stringify({
-  $schema: "http://json-schema.org/draft-07/schema#",
-  type: "object",
-  required: ["tx_id", "amount", "currency"],
-  properties: {
-    tx_id: { type: "string" },
-    amount: { type: "number" },
-    currency: { type: "string", enum: ["USD", "EUR", "JPY"] },
-  },
-}, null, 2);
-
-const CONNECTORS_BY_CLUSTER: Record<string, T.ConnectorSummary[]> = {
-  "cluster-1": [
-    { name: "postgres-cdc-source", connector_type: "source", state: "RUNNING", task_count: 2, failed_tasks: 0, connector_class: "io.debezium.connector.postgresql.PostgresConnector" },
-    { name: "s3-sink-orders", connector_type: "sink", state: "RUNNING", task_count: 4, failed_tasks: 0, connector_class: "io.confluent.connect.s3.S3SinkConnector" },
-  ],
-  "cluster-2": [
-    { name: "mysql-cdc-users", connector_type: "source", state: "RUNNING", task_count: 1, failed_tasks: 0, connector_class: "io.debezium.connector.mysql.MySqlConnector" },
-    { name: "elasticsearch-sink", connector_type: "sink", state: "FAILED", task_count: 3, failed_tasks: 2, connector_class: "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector" },
-    { name: "snowflake-sink", connector_type: "sink", state: "PAUSED", task_count: 2, failed_tasks: 0, connector_class: "com.snowflake.kafka.connector.SnowflakeSinkConnector" },
-    { name: "datagen-source", connector_type: "source", state: "RUNNING", task_count: 1, failed_tasks: 0, connector_class: "io.confluent.kafka.connect.datagen.DatagenConnector" },
-  ],
-  "cluster-3": [],
-};
-
-function buildConnectorDetail(clusterId: string, name: string): T.ConnectorDetail {
-  const summary = (CONNECTORS_BY_CLUSTER[clusterId] ?? []).find((c) => c.name === name);
-  const tasks: T.ConnectorTask[] = summary
-    ? Array.from({ length: summary.task_count }, (_, i) => {
-        const failed = i < summary.failed_tasks;
-        return {
-          task_id: i,
-          state: failed ? "FAILED" : (summary.state === "PAUSED" ? "PAUSED" : "RUNNING"),
-          worker_id: `connect-worker-${(i % 3) + 1}.example.com:8083`,
-          error_trace: failed
-            ? "org.apache.kafka.connect.errors.ConnectException: Tolerance exceeded in error handler\n\tat org.apache.kafka.connect.runtime.errors.RetryWithToleranceOperator.execAndHandleError"
-            : null,
-        };
-      })
-    : [];
-
-  const config: Record<string, string> = summary
-    ? {
-        name,
-        "connector.class": summary.connector_class,
-        "tasks.max": String(summary.task_count),
-        topics: "user-events,order-updates",
-        "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-        "value.converter": "io.confluent.connect.avro.AvroConverter",
-        "value.converter.schema.registry.url": "http://localhost:8081",
-      }
-    : {};
-
-  return {
-    name,
-    connector_type: summary?.connector_type ?? "sink",
-    state: summary?.state ?? "UNASSIGNED",
-    config,
-    tasks,
-    error_trace: summary?.state === "FAILED"
-      ? "org.apache.kafka.connect.errors.ConnectException: Connector configuration is invalid"
-      : null,
-  };
-}
-
 let appConfig: T.AppConfig = {
   theme: "dark",
   language: "zh",
@@ -582,79 +480,6 @@ const mockApi = {
     ];
   },
 
-  async listSchemaSubjects(clusterId: string): Promise<T.SchemaSubject[]> {
-    await sleep(80);
-    return [...(SCHEMAS_BY_CLUSTER[clusterId] ?? [])];
-  },
-
-  async getSchemaVersion(_clusterId: string, subject: string, version: number | "latest"): Promise<T.SchemaVersion> {
-    await sleep(80);
-    const isJson = subject.toLowerCase().includes("payment") || subject.includes("notifications");
-    return {
-      subject,
-      version: typeof version === "number" ? version : 1,
-      id: 1000 + Math.floor(Math.random() * 100),
-      schema_type: isJson ? "JSON" : "AVRO",
-      schema: isJson ? JSON_PAYMENT_TX : AVRO_USER_EVENTS,
-    };
-  },
-
-  async deleteSchemaVersion(_clusterId: string, _subject: string, _version: number | "all"): Promise<{ ok: boolean }> {
-    await sleep(100);
-    return { ok: true };
-  },
-
-  async listConnectors(clusterId: string): Promise<T.ConnectorSummary[]> {
-    await sleep(120);
-    return [...(CONNECTORS_BY_CLUSTER[clusterId] ?? [])];
-  },
-
-  async getConnectorDetail(clusterId: string, connectorName: string): Promise<T.ConnectorDetail> {
-    await sleep(100);
-    return buildConnectorDetail(clusterId, connectorName);
-  },
-
-  async pauseConnector(clusterId: string, connectorName: string): Promise<{ ok: boolean }> {
-    await sleep(80);
-    const list = CONNECTORS_BY_CLUSTER[clusterId];
-    const c = list?.find((x) => x.name === connectorName);
-    if (c) c.state = "PAUSED";
-    return { ok: true };
-  },
-
-  async resumeConnector(clusterId: string, connectorName: string): Promise<{ ok: boolean }> {
-    await sleep(80);
-    const list = CONNECTORS_BY_CLUSTER[clusterId];
-    const c = list?.find((x) => x.name === connectorName);
-    if (c) c.state = "RUNNING";
-    return { ok: true };
-  },
-
-  async restartConnector(clusterId: string, connectorName: string, _taskId: number | null): Promise<{ ok: boolean }> {
-    await sleep(150);
-    const list = CONNECTORS_BY_CLUSTER[clusterId];
-    const c = list?.find((x) => x.name === connectorName);
-    if (c) {
-      c.state = "RUNNING";
-      c.failed_tasks = 0;
-    }
-    return { ok: true };
-  },
-
-  async deleteConnector(clusterId: string, connectorName: string): Promise<{ ok: boolean }> {
-    await sleep(100);
-    const list = CONNECTORS_BY_CLUSTER[clusterId];
-    if (list) {
-      CONNECTORS_BY_CLUSTER[clusterId] = list.filter((c) => c.name !== connectorName);
-    }
-    return { ok: true };
-  },
-
-  async upsertConnector(_clusterId: string, _connectorName: string, _config: Record<string, string>): Promise<{ ok: boolean }> {
-    await sleep(150);
-    return { ok: true };
-  },
-
   async getAppConfig(): Promise<T.AppConfig> {
     await sleep(20);
     return { ...appConfig };
@@ -711,20 +536,6 @@ function mapEncoding(v: unknown): T.MessageEncoding {
   if (v === "avro") return "avro";
   if (v === "protobuf") return "protobuf";
   return "text";
-}
-
-function normalizeConnectorState(v: unknown): T.ConnectorState {
-  if (v === "RUNNING" || v === "PAUSED" || v === "FAILED" || v === "UNASSIGNED") {
-    return v;
-  }
-  return "UNASSIGNED";
-}
-
-function normalizeTaskState(v: unknown): T.TaskState {
-  if (v === "RUNNING" || v === "PAUSED" || v === "FAILED" || v === "UNASSIGNED") {
-    return v;
-  }
-  return "UNASSIGNED";
 }
 
 function mapFetchMessagesResponse(raw: T.FetchMessagesResponse): T.FetchMessagesResponse {
@@ -896,73 +707,6 @@ const realApi: typeof mockApi = {
 
   async getTopicGroupPartitionLag(clusterId, topic, groupId) {
     return tauriInvoke("get_topic_group_partition_lag", { clusterId, topic, groupId });
-  },
-
-  async listSchemaSubjects(clusterId) {
-    return tauriInvoke("list_schema_subjects", { clusterId });
-  },
-
-  async getSchemaVersion(clusterId, subject, version) {
-    return tauriInvoke("get_schema_version", { clusterId, subject, version: String(version) });
-  },
-
-  async deleteSchemaVersion(clusterId, subject, version) {
-    const r = await tauriInvoke<{ ok?: boolean }>("delete_schema_version", {
-      clusterId,
-      subject,
-      version: String(version),
-    });
-    return { ok: r.ok ?? true };
-  },
-
-  async listConnectors(clusterId) {
-    const raw = await tauriInvoke<T.ConnectorSummary[]>("list_connectors", { clusterId });
-    return raw.map((c) => ({
-      ...c,
-      state: normalizeConnectorState(c.state),
-      connector_type: c.connector_type === "source" ? "source" : "sink",
-    }));
-  },
-
-  async getConnectorDetail(clusterId, connectorName) {
-    const raw = await tauriInvoke<T.ConnectorDetail>("get_connector_detail", {
-      clusterId,
-      name: connectorName,
-    });
-    return {
-      ...raw,
-      state: normalizeConnectorState(raw.state),
-      connector_type: raw.connector_type === "source" ? "source" : "sink",
-      tasks: (raw.tasks ?? []).map((t) => ({
-        ...t,
-        state: normalizeTaskState(t.state),
-      })),
-    };
-  },
-
-  async pauseConnector(clusterId, connectorName) {
-    const r = await tauriInvoke<{ ok?: boolean }>("pause_connector", { clusterId, name: connectorName });
-    return { ok: r.ok ?? true };
-  },
-
-  async resumeConnector(clusterId, connectorName) {
-    const r = await tauriInvoke<{ ok?: boolean }>("resume_connector", { clusterId, name: connectorName });
-    return { ok: r.ok ?? true };
-  },
-
-  async restartConnector(clusterId, connectorName, _taskId) {
-    const r = await tauriInvoke<{ ok?: boolean }>("restart_connector", { clusterId, name: connectorName });
-    return { ok: r.ok ?? true };
-  },
-
-  async deleteConnector(clusterId, connectorName) {
-    const r = await tauriInvoke<{ ok?: boolean }>("delete_connector", { clusterId, name: connectorName });
-    return { ok: r.ok ?? true };
-  },
-
-  async upsertConnector(clusterId, connectorName, config) {
-    await tauriInvoke("upsert_connector", { clusterId, name: connectorName, config });
-    return { ok: true };
   },
 
   async getAppConfig() {

@@ -4,8 +4,6 @@ import { Layout, Menu, Progress, Select, Tooltip, Typography, message as antMess
 import {
   UnorderedListOutlined,
   TeamOutlined,
-  DatabaseOutlined,
-  ApiOutlined,
   SettingOutlined,
   SendOutlined,
   GithubOutlined,
@@ -24,8 +22,6 @@ import TopicDetail from "../../pages/TopicDetail";
 import MessageBrowser from "../../pages/MessageBrowser";
 import MessageProducer from "../../pages/MessageProducer";
 import ConsumerGroups from "../../pages/ConsumerGroups";
-import SchemaRegistry from "../../pages/SchemaRegistry";
-import Connect from "../../pages/Connect";
 import Settings from "../../pages/Settings";
 
 const { Sider, Content, Header } = Layout;
@@ -34,8 +30,6 @@ const { Text } = Typography;
 const NAV_ITEMS = [
   { key: "/topics", label: "Topics", icon: <UnorderedListOutlined /> },
   { key: "/groups", label: "Consumer Groups", icon: <TeamOutlined /> },
-  { key: "/schemas", label: "Schema Registry", icon: <DatabaseOutlined /> },
-  { key: "/connect", label: "Kafka Connect", icon: <ApiOutlined /> },
   { key: "/producer", label: "Producer", icon: <SendOutlined /> },
   { key: "/settings", label: "Settings", icon: <SettingOutlined /> },
 ];
@@ -405,8 +399,6 @@ export default function MainLayout() {
             <Route path="/topics/:topicName" element={<TopicDetail />} />
             <Route path="/topics/:topicName/messages" element={<MessageBrowser />} />
             <Route path="/groups" element={<ConsumerGroups />} />
-            <Route path="/schemas" element={<SchemaRegistry />} />
-            <Route path="/connect" element={<Connect />} />
             <Route path="/producer" element={<MessageProducer />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/topics" replace />} />

@@ -47,7 +47,7 @@ export default function Topics() {
   const [search, setSearch] = useState<string>("");
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [creating, setCreating] = useState<boolean>(false);
-  const [form] = Form.useForm<CreateTopicRequest>();
+  const [form] = Form.useForm<CreateTopicRequest & { retention_days: string }>();
 
   const load = useCallback(async () => {
     if (!currentClusterId) return;
@@ -77,11 +77,16 @@ export default function Topics() {
     try {
       const values = await form.validateFields();
       setCreating(true);
+      const configs: Record<string, string> = {};
+      const days = (values as unknown as { retention_days?: string }).retention_days;
+      if (days) {
+        configs["retention.ms"] = String(Number(days) * 86400 * 1000);
+      }
       await api.createTopic(currentClusterId, {
         name: values.name,
         partition_count: values.partition_count,
         replication_factor: values.replication_factor,
-        configs: {},
+        configs,
       });
       message.success(`Topic "${values.name}" created`);
       setCreateOpen(false);
@@ -255,6 +260,13 @@ export default function Topics() {
             rules={[{ required: true, message: "Replication factor is required" }]}
           >
             <InputNumber min={1} max={10} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item
+            label="Retention (days)"
+            name="retention_days"
+            extra="Leave empty to use the cluster default"
+          >
+            <InputNumber min={1} max={36500} style={{ width: "100%" }} placeholder="cluster default" />
           </Form.Item>
         </Form>
       </Modal>

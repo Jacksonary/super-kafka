@@ -12,9 +12,6 @@ pub struct ClusterConfig {
     pub ssl_ca_cert_path: Option<String>,
     pub ssl_client_cert_path: Option<String>,
     pub ssl_client_key_path: Option<String>,
-    pub schema_registry_url: Option<String>,
-    pub schema_registry_username: Option<String>,
-    pub connect_url: Option<String>,
     #[serde(default = "default_timeout")]
     pub request_timeout_ms: u32,
     pub created_at: u64,
@@ -131,6 +128,11 @@ pub struct ProduceMessageRequest {
     pub key: Option<String>,
     pub value: String,
     pub headers: Vec<MessageHeader>,
+    #[serde(default = "default_compression")]
+    pub compression: String,
+}
+fn default_compression() -> String {
+    "none".to_string()
 }
 
 #[derive(Debug, Serialize)]
@@ -200,51 +202,6 @@ pub struct ResetOffsetRequest {
     /// None = all partitions of the topic; Some(p) = only partition p.
     pub partition: Option<i32>,
     pub strategy: serde_json::Value,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SchemaSubject {
-    pub name: String,
-    pub version_count: i32,
-    pub latest_version: i32,
-    pub schema_type: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SchemaVersion {
-    pub subject: String,
-    pub version: i32,
-    pub id: i32,
-    pub schema_type: String,
-    pub schema: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConnectorSummary {
-    pub name: String,
-    pub connector_type: String,
-    pub state: String,
-    pub task_count: i32,
-    pub failed_tasks: i32,
-    pub connector_class: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConnectorDetail {
-    pub name: String,
-    pub connector_type: String,
-    pub state: String,
-    pub config: HashMap<String, String>,
-    pub tasks: Vec<ConnectorTask>,
-    pub error_trace: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConnectorTask {
-    pub task_id: i32,
-    pub state: String,
-    pub worker_id: String,
-    pub error_trace: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

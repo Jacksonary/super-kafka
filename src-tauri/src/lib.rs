@@ -1,9 +1,7 @@
 pub mod cluster_pool;
 pub mod commands;
 pub mod config;
-pub mod connect_client;
 pub mod kafka_client;
-pub mod schema_client;
 pub mod types;
 
 use std::sync::Arc;
@@ -48,16 +46,6 @@ pub fn run() {
             commands::groups::reset_offset,
             commands::groups::list_topic_consumer_groups,
             commands::groups::get_topic_group_partition_lag,
-            commands::schema::list_schema_subjects,
-            commands::schema::get_schema_version,
-            commands::schema::delete_schema_version,
-            commands::connect::list_connectors,
-            commands::connect::get_connector_detail,
-            commands::connect::pause_connector,
-            commands::connect::resume_connector,
-            commands::connect::restart_connector,
-            commands::connect::delete_connector,
-            commands::connect::upsert_connector,
             commands::settings::get_app_config,
             commands::settings::save_app_config,
             commands::update::check_update,

@@ -14,7 +14,7 @@ import {
 import { DeleteOutlined, PlusOutlined, SendOutlined } from "@ant-design/icons";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
-import type { MessageHeader, TopicSummary } from "../types";
+import type { CompressionCodec, MessageHeader, TopicSummary } from "../types";
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -29,6 +29,7 @@ export default function MessageProducer() {
   const [keyText, setKeyText] = useState<string>("");
   const [valueText, setValueText] = useState<string>("");
   const [headers, setHeaders] = useState<MessageHeader[]>([]);
+  const [compression, setCompression] = useState<CompressionCodec>("none");
   const [sending, setSending] = useState(false);
   const [lastResult, setLastResult] = useState<{ partition: number; offset: number } | null>(null);
 
@@ -68,6 +69,7 @@ export default function MessageProducer() {
         key: keyText || null,
         value: valueText,
         headers: headers.filter((h) => h.key.trim() !== ""),
+        compression,
       });
       setLastResult(res);
       message.success(`Sent to partition ${res.partition}, offset ${res.offset}`);
@@ -104,6 +106,20 @@ export default function MessageProducer() {
               onChange={(v) => setPartition(v ?? null)}
               placeholder="auto"
               style={{ width: 140 }}
+            />
+          </Form.Item>
+          <Form.Item label="Compression">
+            <Select
+              value={compression}
+              onChange={setCompression}
+              style={{ width: 120 }}
+              options={[
+                { value: "none", label: "None" },
+                { value: "gzip", label: "gzip" },
+                { value: "snappy", label: "snappy" },
+                { value: "lz4", label: "lz4" },
+                { value: "zstd", label: "zstd" },
+              ]}
             />
           </Form.Item>
         </Space>

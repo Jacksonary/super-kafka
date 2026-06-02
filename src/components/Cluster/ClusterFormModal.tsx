@@ -34,9 +34,6 @@ interface FormValues {
   ssl_ca_cert_path: string | null;
   ssl_client_cert_path: string | null;
   ssl_client_key_path: string | null;
-  schema_registry_url: string | null;
-  schema_registry_username: string | null;
-  connect_url: string | null;
   request_timeout_ms: number;
 }
 
@@ -71,9 +68,6 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
         ssl_ca_cert_path: initialConfig.ssl_ca_cert_path,
         ssl_client_cert_path: initialConfig.ssl_client_cert_path,
         ssl_client_key_path: initialConfig.ssl_client_key_path,
-        schema_registry_url: initialConfig.schema_registry_url,
-        schema_registry_username: initialConfig.schema_registry_username,
-        connect_url: initialConfig.connect_url,
         request_timeout_ms: initialConfig.request_timeout_ms,
       });
       setSecurityProtocol(initialConfig.security_protocol);
@@ -107,9 +101,6 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
       ssl_ca_cert_path: showSsl ? values.ssl_ca_cert_path || null : null,
       ssl_client_cert_path: showSsl ? values.ssl_client_cert_path || null : null,
       ssl_client_key_path: showSsl ? values.ssl_client_key_path || null : null,
-      schema_registry_url: values.schema_registry_url || null,
-      schema_registry_username: values.schema_registry_username || null,
-      connect_url: values.connect_url || null,
       request_timeout_ms: values.request_timeout_ms ?? 30000,
       created_at: initialConfig?.created_at ?? Date.now(),
     };
@@ -241,18 +232,6 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
           </>
         )}
 
-        <Divider orientation="left" plain>
-          <Text type="secondary">Optional Services</Text>
-        </Divider>
-        <Form.Item name="schema_registry_url" label="Schema Registry URL">
-          <Input placeholder="http://localhost:8081" />
-        </Form.Item>
-        <Form.Item name="schema_registry_username" label="Schema Registry Username">
-          <Input autoComplete="off" />
-        </Form.Item>
-        <Form.Item name="connect_url" label="Kafka Connect URL">
-          <Input placeholder="http://localhost:8083" />
-        </Form.Item>
         <Form.Item
           name="request_timeout_ms"
           label="Request Timeout (ms)"

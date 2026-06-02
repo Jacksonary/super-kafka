@@ -25,10 +25,6 @@ export interface ClusterConfig {
   ssl_ca_cert_path: string | null;
   ssl_client_cert_path: string | null;
   ssl_client_key_path: string | null;
-  schema_registry_url: string | null;
-  schema_registry_username: string | null;
-  // schema registry 密码也在 keychain
-  connect_url: string | null;
   request_timeout_ms: number;       // default 30000
   created_at: number;               // unix timestamp ms
 }
@@ -136,6 +132,8 @@ export interface FetchMessagesResponse {
   has_more: boolean;
 }
 
+export type CompressionCodec = "none" | "gzip" | "snappy" | "lz4" | "zstd";
+
 export interface ProduceMessageRequest {
   cluster_id: string;
   topic: string;
@@ -143,6 +141,7 @@ export interface ProduceMessageRequest {
   key: string | null;
   value: string;                    // JSON string or plain text
   headers: MessageHeader[];
+  compression: CompressionCodec;
 }
 
 // ── Consumer Group ────────────────────────────────────────
@@ -220,56 +219,6 @@ export interface ResetOffsetRequest {
   // null/undefined = all partitions; a number = only that partition.
   partition?: number | null;
   strategy: ResetOffsetStrategy;
-}
-
-// ── Schema Registry ───────────────────────────────────────
-
-export type SchemaType = "AVRO" | "PROTOBUF" | "JSON";
-
-export interface SchemaSubject {
-  name: string;
-  version_count: number;
-  latest_version: number;
-  schema_type: SchemaType;
-}
-
-export interface SchemaVersion {
-  subject: string;
-  version: number;
-  id: number;
-  schema_type: SchemaType;
-  schema: string;                   // 原始 schema 字符串
-}
-
-// ── Kafka Connect ─────────────────────────────────────────
-
-export type ConnectorType = "source" | "sink";
-export type ConnectorState = "RUNNING" | "PAUSED" | "FAILED" | "UNASSIGNED";
-export type TaskState = "RUNNING" | "PAUSED" | "FAILED" | "UNASSIGNED";
-
-export interface ConnectorSummary {
-  name: string;
-  connector_type: ConnectorType;
-  state: ConnectorState;
-  task_count: number;
-  failed_tasks: number;
-  connector_class: string;
-}
-
-export interface ConnectorDetail {
-  name: string;
-  connector_type: ConnectorType;
-  state: ConnectorState;
-  config: Record<string, string>;
-  tasks: ConnectorTask[];
-  error_trace: string | null;
-}
-
-export interface ConnectorTask {
-  task_id: number;
-  state: TaskState;
-  worker_id: string;
-  error_trace: string | null;
 }
 
 // ── 通用 ─────────────────────────────────────────────────

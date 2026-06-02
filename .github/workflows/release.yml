@@ -17,10 +17,13 @@ jobs:
         include:
           - platform: ubuntu-22.04
             target: linux
+            args: ""
           - platform: windows-latest
             target: windows
+            args: "--bundles nsis"
           - platform: macos-latest
             target: macos
+            args: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -72,6 +75,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install npm dependencies
         run: npm ci
@@ -87,6 +91,7 @@ jobs:
           releaseBody: "See the assets to download the installer for your platform."
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}
 
   sync-to-gitee:
     needs: build

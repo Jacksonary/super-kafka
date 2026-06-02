@@ -257,10 +257,9 @@ pub async fn produce_message(
         .ok_or_else(|| format!("[CONFIG] cluster `{}` not found", req.cluster_id))?;
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
     let pool = state.pool.clone();
+    let password = crate::config::load_sasl_password(&req.cluster_id).ok().flatten();
 
     tokio::task::spawn_blocking(move || -> Result<Value, String> {
-        let bundle = pool.get_or_create(&req.cluster_id)?;
-        let producer: &BaseProducer<_> = &bundle.producer;
         let mut headers = OwnedHeaders::new();
         for h in &req.headers {
             headers = headers.insert(Header {
@@ -281,12 +280,32 @@ pub async fn produce_message(
         }
         record = record.headers(headers);
 
-        producer
-            .send(record)
-            .map_err(|(e, _)| format!("[KAFKA-PRODUCE] send: {e}"))?;
-        producer
-            .flush(timeout)
-            .map_err(|e| format!("[KAFKA-PRODUCE] flush: {e}"))?;
+        let codec = req.compression.as_str();
+        if codec == "none" {
+            // Reuse the pooled producer (no compression overhead).
+            let bundle = pool.get_or_create(&req.cluster_id)?;
+            let producer: &BaseProducer<_> = &bundle.producer;
+            producer
+                .send(record)
+                .map_err(|(e, _)| format!("[KAFKA-PRODUCE] send: {e}"))?;
+            producer
+                .flush(timeout)
+                .map_err(|e| format!("[KAFKA-PRODUCE] flush: {e}"))?;
+        } else {
+            // Build a one-shot producer with the requested compression codec.
+            let mut cfg = crate::kafka_client::build_client_config(&cluster, password.as_deref());
+            cfg.set("compression.codec", codec);
+            let producer: BaseProducer = cfg
+                .create()
+                .map_err(|e| format!("[KAFKA-PRODUCE] create compressed producer: {e}"))?;
+            producer
+                .send(record)
+                .map_err(|(e, _)| format!("[KAFKA-PRODUCE] send: {e}"))?;
+            producer
+                .flush(timeout)
+                .map_err(|e| format!("[KAFKA-PRODUCE] flush: {e}"))?;
+        }
+
         Ok(json!({ "ok": true }))
     })
     .await

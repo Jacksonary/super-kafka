@@ -47,24 +47,12 @@ pub async fn list_topics(
                 .map(|p| p.replicas().len() as i32)
                 .unwrap_or(0);
 
-            let mut total: i64 = 0;
-            let mut valid = true;
-            for p in t.partitions() {
-                match client.fetch_watermarks(&name, p.id(), timeout) {
-                    Ok((low, high)) => total += (high - low).max(0),
-                    Err(_) => {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-
             out.push(TopicSummary {
                 name,
                 partition_count,
                 replication_factor,
                 is_internal,
-                message_count: if valid { Some(total) } else { None },
+                message_count: None,
                 size_bytes: None,
             });
         }

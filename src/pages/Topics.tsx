@@ -22,20 +22,7 @@ import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
 import type { CreateTopicRequest, TopicSummary } from "../types";
 
-const { Text } = Typography;
 
-function formatBytes(bytes: number | null): string {
-  if (bytes == null) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let v = bytes / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(2)} ${units[i]}`;
-}
 
 export default function Topics() {
   const { currentClusterId } = useClusterStore();
@@ -47,7 +34,7 @@ export default function Topics() {
   const [search, setSearch] = useState<string>("");
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [creating, setCreating] = useState<boolean>(false);
-  const [form] = Form.useForm<CreateTopicRequest & { retention_days: string }>();
+  const [form] = Form.useForm<CreateTopicRequest & { retention_days: number | null }>();
 
   const load = useCallback(async () => {
     if (!currentClusterId) return;
@@ -78,9 +65,8 @@ export default function Topics() {
       const values = await form.validateFields();
       setCreating(true);
       const configs: Record<string, string> = {};
-      const days = (values as unknown as { retention_days?: string }).retention_days;
-      if (days) {
-        configs["retention.ms"] = String(Number(days) * 86400 * 1000);
+      if (values.retention_days) {
+        configs["retention.ms"] = String(values.retention_days * 86400 * 1000);
       }
       await api.createTopic(currentClusterId, {
         name: values.name,
@@ -150,25 +136,6 @@ export default function Topics() {
       width: 110,
       align: "right",
       sorter: (a, b) => a.replication_factor - b.replication_factor,
-    },
-    {
-      title: "Messages",
-      dataIndex: "message_count",
-      key: "message_count",
-      width: 140,
-      align: "right",
-      sorter: (a, b) => (a.message_count ?? -1) - (b.message_count ?? -1),
-      render: (v: number | null) =>
-        v == null ? <Text type="secondary">—</Text> : v.toLocaleString(),
-    },
-    {
-      title: "Size",
-      dataIndex: "size_bytes",
-      key: "size_bytes",
-      width: 120,
-      align: "right",
-      sorter: (a, b) => (a.size_bytes ?? -1) - (b.size_bytes ?? -1),
-      render: (v: number | null) => formatBytes(v),
     },
     {
       title: "",

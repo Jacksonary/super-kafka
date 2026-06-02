@@ -294,7 +294,7 @@ pub async fn produce_message(
         } else {
             // Build a one-shot producer with the requested compression codec.
             let mut cfg = crate::kafka_client::build_client_config(&cluster, password.as_deref());
-            cfg.set("compression.codec", codec);
+            cfg.set("compression.type", codec);
             let producer: BaseProducer = cfg
                 .create()
                 .map_err(|e| format!("[KAFKA-PRODUCE] create compressed producer: {e}"))?;

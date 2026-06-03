@@ -258,7 +258,7 @@ export default function TopicDetail() {
             {
               key: "messages",
               label: "Messages",
-              children: <MessageBrowser embeddedTopic={topicName} />,
+              children: <MessageBrowser embeddedTopic={topicName} embeddedPartitionCount={detail?.partitions.length} />,
             },
             {
               key: "consumer-groups",

@@ -38,9 +38,10 @@ const LIVE_MAX_BUFFER = 500;
 
 interface Props {
   embeddedTopic?: string;
+  embeddedPartitionCount?: number;
 }
 
-export default function MessageBrowser({ embeddedTopic }: Props) {
+export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }: Props) {
   const { currentClusterId } = useClusterStore();
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
@@ -224,15 +225,13 @@ export default function MessageBrowser({ embeddedTopic }: Props) {
   }
 
   const partitionOptions = (() => {
-    if (embeddedTopic) {
-      // we don't know partition count without detail; allow user input
-      return null;
-    }
-    const t = topics.find((x) => x.name === topic);
-    if (!t) return null;
+    const count = embeddedTopic
+      ? (embeddedPartitionCount ?? null)
+      : (topics.find((x) => x.name === topic)?.partition_count ?? null);
+    if (count == null) return null;
     return [
-      { value: -1, label: "All partitions" },
-      ...Array.from({ length: t.partition_count }, (_, i) => ({ value: i, label: `Partition ${i}` })),
+      { value: -1, label: "All" },
+      ...Array.from({ length: count }, (_, i) => ({ value: i, label: "Partition " + i })),
     ];
   })();
 
@@ -268,22 +267,13 @@ export default function MessageBrowser({ embeddedTopic }: Props) {
               </Form.Item>
             )}
             <Form.Item label="Partition">
-              {partitionOptions ? (
-                <Select
-                  style={{ width: 160 }}
-                  value={partition ?? -1}
-                  onChange={(v: number) => setPartition(v === -1 ? null : v)}
-                  options={partitionOptions}
-                />
-              ) : (
-                <InputNumber
-                  style={{ width: 120 }}
-                  value={partition ?? -1}
-                  min={-1}
-                  onChange={(v) => setPartition(v == null || v === -1 ? null : v)}
-                  placeholder="-1 = all"
-                />
-              )}
+              <Select
+                style={{ width: 160 }}
+                value={partition ?? -1}
+                onChange={(v: number) => setPartition(v === -1 ? null : v)}
+                options={partitionOptions ?? [{ value: -1, label: "All" }]}
+                disabled={partitionOptions === null}
+              />
             </Form.Item>
 
             {/* Fetch 模式专属控件 */}

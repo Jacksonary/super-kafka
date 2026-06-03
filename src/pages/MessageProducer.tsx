@@ -36,6 +36,15 @@ export default function MessageProducer() {
   const [sendProgress, setSendProgress] = useState<{ done: number; total: number } | null>(null);
   const location = useLocation();
 
+  const partitionOptions = (() => {
+    const t = topics.find((x) => x.name === topic);
+    if (!t) return null;
+    return [
+      { value: -1, label: "Auto" },
+      ...Array.from({ length: t.partition_count }, (_, i) => ({ value: i, label: "Partition " + i })),
+    ];
+  })();
+
   useEffect(() => {
     if (!currentClusterId) return;
     void api
@@ -118,13 +127,13 @@ export default function MessageProducer() {
                 .map((t) => ({ value: t.name, label: t.name }))}
             />
           </Form.Item>
-          <Form.Item label="Partition (optional)">
-            <InputNumber
-              min={0}
-              value={partition ?? undefined}
-              onChange={(v) => setPartition(v ?? null)}
-              placeholder="auto"
+          <Form.Item label="Partition">
+            <Select
               style={{ width: 140 }}
+              value={partition ?? -1}
+              onChange={(v: number) => setPartition(v === -1 ? null : v)}
+              options={partitionOptions ?? [{ value: -1, label: "Auto" }]}
+              disabled={partitionOptions === null}
             />
           </Form.Item>
           <Form.Item label="Compression">

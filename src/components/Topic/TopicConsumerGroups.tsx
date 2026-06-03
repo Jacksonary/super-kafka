@@ -246,6 +246,7 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
         groupId={resetTarget?.groupId ?? ""}
         topics={[topic]}
         fixedPartition={resetTarget?.partition}
+        partitionCount={partitions.length > 0 ? partitions.length : undefined}
         onClose={() => {
           const gid = selected?.group_id;
           setResetTarget(null);

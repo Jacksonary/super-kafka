@@ -10,6 +10,7 @@ interface Props {
   topics: string[];
   /** Single-partition reset mode: lock to this partition (pass topics=[theTopic]). */
   fixedPartition?: number;
+  partitionCount?: number;
   onClose: () => void;
 }
 
@@ -21,6 +22,7 @@ export default function ResetOffsetModal({
   groupId,
   topics,
   fixedPartition,
+  partitionCount,
   onClose,
 }: Props) {
   const { message } = AntdApp.useApp();
@@ -107,12 +109,21 @@ export default function ResetOffsetModal({
           <>
             {!single && (
               <Form.Item label="Partition">
-                <InputNumber
-                  min={0}
-                  value={partition}
-                  onChange={(v) => setPartition(v ?? 0)}
-                  style={{ width: "100%" }}
-                />
+                {partitionCount != null ? (
+                  <Select
+                    value={partition}
+                    onChange={(v: number) => setPartition(v)}
+                    options={Array.from({ length: partitionCount }, (_, i) => ({ value: i, label: "Partition " + i }))}
+                    style={{ width: "100%" }}
+                  />
+                ) : (
+                  <InputNumber
+                    min={0}
+                    value={partition}
+                    onChange={(v) => setPartition(v ?? 0)}
+                    style={{ width: "100%" }}
+                  />
+                )}
               </Form.Item>
             )}
             <Form.Item label="Offset">

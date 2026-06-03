@@ -113,7 +113,7 @@ export default function ResetOffsetModal({
                   <Select
                     value={partition}
                     onChange={(v: number) => setPartition(v)}
-                    options={Array.from({ length: partitionCount }, (_, i) => ({ value: i, label: "Partition " + i }))}
+                    options={Array.from({ length: partitionCount }, (_, i) => ({ value: i, label: String(i) }))}
                     style={{ width: "100%" }}
                   />
                 ) : (

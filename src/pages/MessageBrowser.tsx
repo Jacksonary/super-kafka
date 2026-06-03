@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   DatePicker,
-  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -231,7 +230,7 @@ export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }
     if (count == null) return null;
     return [
       { value: -1, label: "All" },
-      ...Array.from({ length: count }, (_, i) => ({ value: i, label: "Partition " + i })),
+      ...Array.from({ length: count }, (_, i) => ({ value: i, label: String(i) })),
     ];
   })();
 
@@ -365,21 +364,16 @@ export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }
           <span />
         )}
         <Space>
-          <Dropdown
-            menu={{
-              items: [
-                { key: "ndjson", label: "Export as NDJSON" },
-                { key: "csv", label: "Export as CSV" },
-              ],
-              onClick: ({ key }) => {
-                const data = viewMode === "live" ? liveMessages : filtered;
-                if (topic) exportMessages(data, key as "ndjson" | "csv", topic);
-              },
-            }}
+          <Button
+            icon={<DownloadOutlined />}
             disabled={(viewMode === "live" ? liveMessages : filtered).length === 0}
+            onClick={() => {
+              const data = viewMode === "live" ? liveMessages : filtered;
+              if (topic) exportMessages(data, topic);
+            }}
           >
-            <Button icon={<DownloadOutlined />}>Export</Button>
-          </Dropdown>
+            Export CSV
+          </Button>
           <Text type="secondary">
             {viewMode === "live"
               ? `${liveMessages.length} messages (max ${LIVE_MAX_BUFFER})`

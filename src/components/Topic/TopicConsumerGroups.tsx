@@ -4,7 +4,7 @@ import {
   Button,
   Card,
   Empty,
-  Space,
+  Spin,
   Table,
   Tag,
   Tooltip,
@@ -38,15 +38,19 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
   const { message } = AntdApp.useApp();
   const [groups, setGroups] = useState<TopicConsumerGroup[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
-  const [selected, setSelected] = useState<TopicConsumerGroup | null>(null);
-  const [partitions, setPartitions] = useState<PartitionLag[]>([]);
-  const [loadingParts, setLoadingParts] = useState(false);
-  const [resetTarget, setResetTarget] = useState<{ groupId: string; partition: number } | null>(
-    null,
-  );
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const [partitions, setPartitions] = useState<Record<string, PartitionLag[]>>({});
+  const [loadingParts, setLoadingParts] = useState<Record<string, boolean>>({});
+  const [resetTarget, setResetTarget] = useState<{
+    group: TopicConsumerGroup;
+    partition: number;
+  } | null>(null);
 
   const loadGroups = useCallback(async () => {
     setLoadingGroups(true);
+    setExpandedKeys([]);
+    setPartitions({});
+    setLoadingParts({});
     try {
       setGroups(await api.listTopicConsumerGroups(clusterId, topic));
     } catch (e) {
@@ -57,34 +61,23 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
   }, [clusterId, topic, message]);
 
   useEffect(() => {
-    setSelected(null);
-    setPartitions([]);
     void loadGroups();
   }, [loadGroups]);
 
   const loadPartitions = useCallback(
     async (groupId: string) => {
-      setLoadingParts(true);
+      setLoadingParts((prev) => ({ ...prev, [groupId]: true }));
       try {
-        setPartitions(await api.getTopicGroupPartitionLag(clusterId, topic, groupId));
+        const lag = await api.getTopicGroupPartitionLag(clusterId, topic, groupId);
+        setPartitions((prev) => ({ ...prev, [groupId]: lag }));
       } catch (e) {
         message.error(String(e));
       } finally {
-        setLoadingParts(false);
+        setLoadingParts((prev) => ({ ...prev, [groupId]: false }));
       }
     },
     [clusterId, topic, message],
   );
-
-  const selectGroup = useCallback(
-    (g: TopicConsumerGroup) => {
-      setSelected(g);
-      void loadPartitions(g.group_id);
-    },
-    [loadPartitions],
-  );
-
-  const canReset = selected?.state === "Empty" || selected?.state === "Dead";
 
   const groupColumns: ColumnsType<TopicConsumerGroup> = [
     {
@@ -118,143 +111,147 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
     },
   ];
 
-  const partColumns: ColumnsType<PartitionLag> = [
-    { title: "Partition", dataIndex: "partition", key: "partition", width: 100 },
-    {
-      title: "Start",
-      dataIndex: "start_offset",
-      key: "start_offset",
-      align: "right",
-      render: formatNumber,
-    },
-    {
-      title: "End",
-      dataIndex: "log_end_offset",
-      key: "log_end_offset",
-      align: "right",
-      render: formatNumber,
-    },
-    {
-      title: "Current",
-      dataIndex: "current_offset",
-      key: "current_offset",
-      align: "right",
-      render: (v: number) => (v < 0 ? <Text type="secondary">-</Text> : formatNumber(v)),
-    },
-    {
-      title: "Lag",
-      dataIndex: "lag",
-      key: "lag",
-      align: "right",
-      render: (v: number) => (
-        <Text type={v > 1000 ? "danger" : v > 100 ? "warning" : undefined}>{formatNumber(v)}</Text>
-      ),
-    },
-    {
-      title: "Action",
-      key: "action",
-      width: 100,
-      render: (_: unknown, p: PartitionLag) => (
-        <Tooltip title={canReset ? "" : "Group must be Empty/Dead to reset — stop its consumers first"}>
-          <Button
-            size="small"
-            disabled={!canReset}
-            onClick={() =>
-              selected && setResetTarget({ groupId: selected.group_id, partition: p.partition })
-            }
-          >
-            Reset
-          </Button>
-        </Tooltip>
-      ),
-    },
-  ];
+  const renderPartitions = (group: TopicConsumerGroup) => {
+    const canReset = group.state === "Empty" || group.state === "Dead";
+    const rows = partitions[group.group_id];
 
-  return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
-      <Card
-        size="small"
-        title={<Text strong>Consumer Groups</Text>}
-        extra={
-          <Button icon={<ReloadOutlined />} size="small" loading={loadingGroups} onClick={loadGroups}>
-            Refresh
-          </Button>
-        }
-      >
-        {groups.length === 0 && !loadingGroups ? (
-          <Empty description="No consumer group consumes this topic" />
-        ) : (
-          <Table<TopicConsumerGroup>
-            rowKey="group_id"
-            size="small"
-            loading={loadingGroups}
-            columns={groupColumns}
-            dataSource={groups}
-            pagination={false}
-            onRow={(g) => ({
-              onClick: () => selectGroup(g),
-              style: { cursor: "pointer" },
-            })}
-            rowClassName={(g) => (g.group_id === selected?.group_id ? "ant-table-row-selected" : "")}
+    if (loadingParts[group.group_id] && !rows) {
+      return (
+        <div style={{ padding: 12 }}>
+          <Spin size="small" />
+        </div>
+      );
+    }
+
+    const partColumns: ColumnsType<PartitionLag> = [
+      { title: "Partition", dataIndex: "partition", key: "partition", width: 100 },
+      {
+        title: "Start",
+        dataIndex: "start_offset",
+        key: "start_offset",
+        align: "right",
+        render: formatNumber,
+      },
+      {
+        title: "End",
+        dataIndex: "log_end_offset",
+        key: "log_end_offset",
+        align: "right",
+        render: formatNumber,
+      },
+      {
+        title: "Current",
+        dataIndex: "current_offset",
+        key: "current_offset",
+        align: "right",
+        render: (v: number) => (v < 0 ? <Text type="secondary">-</Text> : formatNumber(v)),
+      },
+      {
+        title: "Lag",
+        dataIndex: "lag",
+        key: "lag",
+        align: "right",
+        render: (v: number) => (
+          <Text type={v > 1000 ? "danger" : v > 100 ? "warning" : undefined}>
+            {formatNumber(v)}
+          </Text>
+        ),
+      },
+      {
+        title: "Action",
+        key: "action",
+        width: 100,
+        render: (_: unknown, p: PartitionLag) => (
+          <Tooltip
+            title={canReset ? "" : "Group must be Empty/Dead to reset — stop its consumers first"}
+          >
+            <Button
+              size="small"
+              disabled={!canReset}
+              onClick={() => setResetTarget({ group, partition: p.partition })}
+            >
+              Reset
+            </Button>
+          </Tooltip>
+        ),
+      },
+    ];
+
+    return (
+      <div style={{ padding: "4px 0" }}>
+        {!canReset && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 8 }}
+            message="Offsets can only be reset when the group is Empty (no active consumers)."
           />
         )}
-      </Card>
-
-      {selected && (
-        <Card
+        <Table<PartitionLag>
+          rowKey="partition"
           size="small"
-          title={
-            <Space>
-              <Text>Partitions ·</Text>
-              <Text code>{selected.group_id}</Text>
-              <Tag color={STATE_COLORS[selected.state]}>{selected.state}</Tag>
-            </Space>
-          }
-          extra={
-            <Button
-              icon={<ReloadOutlined />}
-              size="small"
-              loading={loadingParts}
-              onClick={() => loadPartitions(selected.group_id)}
-            >
-              Refresh
-            </Button>
-          }
-        >
-          {!canReset && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 8 }}
-              message="Offsets can only be reset when the group is Empty (no active consumers)."
-            />
-          )}
-          <Table<PartitionLag>
-            rowKey="partition"
-            size="small"
-            loading={loadingParts}
-            columns={partColumns}
-            dataSource={partitions}
-            pagination={false}
-          />
-        </Card>
+          loading={loadingParts[group.group_id] ?? false}
+          columns={partColumns}
+          dataSource={rows ?? []}
+          pagination={false}
+        />
+      </div>
+    );
+  };
+
+  return (
+    <Card
+      size="small"
+      title={<Text strong>Consumer Groups</Text>}
+      extra={
+        <Button icon={<ReloadOutlined />} size="small" loading={loadingGroups} onClick={loadGroups}>
+          Refresh
+        </Button>
+      }
+    >
+      {groups.length === 0 && !loadingGroups ? (
+        <Empty description="No consumer group consumes this topic" />
+      ) : (
+        <Table<TopicConsumerGroup>
+          rowKey="group_id"
+          size="small"
+          loading={loadingGroups}
+          columns={groupColumns}
+          dataSource={groups}
+          pagination={false}
+          expandable={{
+            showExpandColumn: false,
+            expandedRowKeys: expandedKeys,
+            expandedRowRender: renderPartitions,
+          }}
+          onRow={(g) => ({
+            onClick: () => {
+              const isOpen = expandedKeys.includes(g.group_id);
+              setExpandedKeys((prev) =>
+                isOpen ? prev.filter((k) => k !== g.group_id) : [...prev, g.group_id],
+              );
+              if (!isOpen && !partitions[g.group_id]) {
+                void loadPartitions(g.group_id);
+              }
+            },
+            style: { cursor: "pointer" },
+          })}
+        />
       )}
 
       <ResetOffsetModal
         open={resetTarget !== null}
         clusterId={clusterId}
-        groupId={resetTarget?.groupId ?? ""}
+        groupId={resetTarget?.group.group_id ?? ""}
         topics={[topic]}
         fixedPartition={resetTarget?.partition}
-        partitionCount={partitions.length > 0 ? partitions.length : undefined}
         onClose={() => {
-          const gid = selected?.group_id;
+          const gid = resetTarget?.group.group_id;
           setResetTarget(null);
           if (gid) void loadPartitions(gid);
-          // Group-list total_lag should reflect the reset too.
           void loadGroups();
         }}
       />
-    </Space>
+    </Card>
   );
 }

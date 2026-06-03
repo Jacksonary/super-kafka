@@ -41,7 +41,7 @@ export default function MessageProducer() {
     if (!t) return null;
     return [
       { value: -1, label: "Auto" },
-      ...Array.from({ length: t.partition_count }, (_, i) => ({ value: i, label: "Partition " + i })),
+      ...Array.from({ length: t.partition_count }, (_, i) => ({ value: i, label: String(i) })),
     ];
   })();
 

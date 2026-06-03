@@ -15,52 +15,25 @@ function messageToExportValue(msg: KafkaMessage): string {
   return btoa(binary);
 }
 
-export function exportMessages(
-  messages: KafkaMessage[],
-  format: "ndjson" | "csv",
-  topic: string,
-): void {
+export function exportMessages(messages: KafkaMessage[], topic: string): void {
   if (messages.length === 0) return;
-  let content: string;
-  let mimeType: string;
-  let ext: string;
-  if (format === "ndjson") {
-    content = messages
-      .map((m) =>
-        JSON.stringify({
-          partition: m.partition,
-          offset: m.offset,
-          timestamp: m.timestamp,
-          timestamp_type: m.timestamp_type,
-          key: m.key_text ?? null,
-          value: messageToExportValue(m),
-          headers: m.headers,
-        })
-      )
-      .join("\n");
-    mimeType = "application/x-ndjson";
-    ext = "ndjson";
-  } else {
-    const csvHeaders = ["partition", "offset", "timestamp", "key", "value", "headers"];
-    const rows = messages.map((m) =>
-      [
-        String(m.partition),
-        String(m.offset),
-        m.timestamp != null ? String(m.timestamp) : "",
-        m.key_text ?? "",
-        messageToExportValue(m),
-        m.headers.length > 0 ? JSON.stringify(m.headers) : "",
-      ]
-        .map(escapeCSV)
-        .join(",")
-    );
-    content = [csvHeaders.join(","), ...rows].join("\n");
-    mimeType = "text/csv";
-    ext = "csv";
-  }
+  const csvHeaders = ["partition", "offset", "timestamp", "key", "value", "headers"];
+  const rows = messages.map((m) =>
+    [
+      String(m.partition),
+      String(m.offset),
+      m.timestamp != null ? String(m.timestamp) : "",
+      m.key_text ?? "",
+      messageToExportValue(m),
+      m.headers.length > 0 ? JSON.stringify(m.headers) : "",
+    ]
+      .map(escapeCSV)
+      .join(",")
+  );
+  const content = [csvHeaders.join(","), ...rows].join("\n");
   const isoDate = new globalThis.Date().toISOString().slice(0, 19).replace(/:/g, "-");
-  const filename = topic + "_" + isoDate + "." + ext;
-  const blob = new Blob([content], { type: mimeType });
+  const filename = topic + "_" + isoDate + ".csv";
+  const blob = new Blob([content], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -59,6 +59,8 @@ export default function MainLayout() {
 
   const readyVersionRef = useRef<string>("");
   const pendingUpdateRef = useRef<Update | null>(null);
+  const downloadingRef = useRef(false);
+  const modalOpenRef = useRef(false);
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
@@ -77,6 +79,8 @@ export default function MainLayout() {
   }, []);
 
   function showRestartModal(version: string) {
+    if (modalOpenRef.current) return;
+    modalOpenRef.current = true;
     Modal.confirm({
       title: "Update ready",
       content: version
@@ -85,18 +89,24 @@ export default function MainLayout() {
       okText: "Restart now",
       cancelText: "Later",
       onOk: async () => {
+        modalOpenRef.current = false;
         if (pendingUpdateRef.current) {
           try {
             await pendingUpdateRef.current.install();
-          } catch { /* ignore, process will relaunch anyway */ }
+          } catch (e) {
+            void antMessage.error(`Install failed: ${String(e)}`);
+            return;
+          }
         }
         void relaunch();
       },
+      onCancel: () => { modalOpenRef.current = false; },
     });
   }
 
   const handleUpdate = async () => {
-    if (updateState.status !== "available") return;
+    if (updateState.status !== "available" || downloadingRef.current) return;
+    downloadingRef.current = true;
     const upd = updateState.update;
     const version = updateState.version;
     pendingUpdateRef.current = upd;
@@ -117,6 +127,8 @@ export default function MainLayout() {
       showRestartModal(version);
     } catch (e) {
       setUpdateState({ status: "error", message: String(e) });
+    } finally {
+      downloadingRef.current = false;
     }
   };
 

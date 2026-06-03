@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   Badge,
   Button,
   Card,
   DatePicker,
+  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -16,7 +18,7 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { DownloadOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
 import { api } from "../api";
@@ -24,6 +26,7 @@ import { useClusterStore } from "../store/clusterStore";
 import type { FetchMode, KafkaMessage, TopicSummary } from "../types";
 import { formatTimestamp, truncate } from "../utils/format";
 import MessageDetailDrawer from "../components/Message/MessageDetailDrawer";
+import { exportMessages } from "../utils/export";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -40,6 +43,7 @@ interface Props {
 export default function MessageBrowser({ embeddedTopic }: Props) {
   const { currentClusterId } = useClusterStore();
   const { message } = AntdApp.useApp();
+  const navigate = useNavigate();
 
   const [topics, setTopics] = useState<TopicSummary[]>([]);
   const [topic, setTopic] = useState<string | null>(embeddedTopic ?? null);
@@ -370,11 +374,28 @@ export default function MessageBrowser({ embeddedTopic }: Props) {
         ) : (
           <span />
         )}
-        <Text type="secondary">
-          {viewMode === "live"
-            ? `${liveMessages.length} messages (max ${LIVE_MAX_BUFFER})`
-            : `${filtered.length} / ${messages.length} messages`}
-        </Text>
+        <Space>
+          <Dropdown
+            menu={{
+              items: [
+                { key: "ndjson", label: "Export as NDJSON" },
+                { key: "csv", label: "Export as CSV" },
+              ],
+              onClick: ({ key }) => {
+                const data = viewMode === "live" ? liveMessages : filtered;
+                if (topic) exportMessages(data, key as "ndjson" | "csv", topic);
+              },
+            }}
+            disabled={(viewMode === "live" ? liveMessages : filtered).length === 0}
+          >
+            <Button icon={<DownloadOutlined />}>Export</Button>
+          </Dropdown>
+          <Text type="secondary">
+            {viewMode === "live"
+              ? `${liveMessages.length} messages (max ${LIVE_MAX_BUFFER})`
+              : `${filtered.length} / ${messages.length} messages`}
+          </Text>
+        </Space>
       </Space>
 
       <Table<KafkaMessage>
@@ -395,6 +416,10 @@ export default function MessageBrowser({ embeddedTopic }: Props) {
         open={selected !== null}
         message={selected}
         onClose={() => setSelected(null)}
+        topic={topic}
+        onReplay={(msg, t) => {
+          navigate("/producer", { state: { replayMessage: msg, replayTopic: t } });
+        }}
       />
     </Space>
   );

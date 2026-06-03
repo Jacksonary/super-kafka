@@ -1,5 +1,5 @@
 import { Button, Descriptions, Drawer, Empty, Space, Tag, Tooltip, Typography, message as antMessage } from "antd";
-import { CopyOutlined } from "@ant-design/icons";
+import { CopyOutlined, SendOutlined } from "@ant-design/icons";
 import type { KafkaMessage } from "../../types";
 import { formatTimestamp } from "../../utils/format";
 
@@ -9,6 +9,8 @@ interface Props {
   open: boolean;
   message: KafkaMessage | null;
   onClose: () => void;
+  onReplay?: (msg: KafkaMessage, topic: string | null) => void;
+  topic?: string | null;
 }
 
 function tryFormatJson(text: string | null): string | null {
@@ -41,7 +43,7 @@ function CodeBlock({ children }: { children: string }) {
   );
 }
 
-export default function MessageDetailDrawer({ open, message, onClose }: Props) {
+export default function MessageDetailDrawer({ open, message, onClose, onReplay, topic }: Props) {
   return (
     <Drawer
       title="Message Detail"
@@ -84,20 +86,42 @@ export default function MessageDetailDrawer({ open, message, onClose }: Props) {
               <CodeBlock>
                 {tryFormatJson(message.value_text) ?? message.value_text ?? "(binary)"}
               </CodeBlock>
-              <Tooltip title="Copy value">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<CopyOutlined />}
-                  style={{ position: "absolute", top: 6, right: 6 }}
-                  onClick={() => {
-                    const text = tryFormatJson(message.value_text) ?? message.value_text ?? "";
-                    navigator.clipboard.writeText(text).then(() => {
-                      void antMessage.success("Copied");
-                    });
-                  }}
-                />
-              </Tooltip>
+              <Space style={{ position: "absolute", top: 6, right: 6 }} size={2}>
+                <Tooltip title="Copy full message as JSON">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<CopyOutlined />}
+                    onClick={() => {
+                      const obj = {
+                        partition: message.partition,
+                        offset: message.offset,
+                        timestamp: message.timestamp,
+                        timestamp_type: message.timestamp_type,
+                        key: message.key_text ?? null,
+                        value: message.value_text ?? null,
+                        headers: message.headers,
+                      };
+                      navigator.clipboard.writeText(JSON.stringify(obj, null, 2)).then(() => {
+                        void antMessage.success("Copied full message");
+                      });
+                    }}
+                  />
+                </Tooltip>
+                <Tooltip title="Copy value">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<CopyOutlined />}
+                    onClick={() => {
+                      const text = tryFormatJson(message.value_text) ?? message.value_text ?? "";
+                      navigator.clipboard.writeText(text).then(() => {
+                        void antMessage.success("Copied");
+                      });
+                    }}
+                  />
+                </Tooltip>
+              </Space>
             </div>
           </div>
 
@@ -122,6 +146,15 @@ export default function MessageDetailDrawer({ open, message, onClose }: Props) {
               </Descriptions>
             )}
           </div>
+          {onReplay && (
+            <Button
+              icon={<SendOutlined />}
+              disabled={message.value_text === null}
+              onClick={() => onReplay(message, topic ?? null)}
+            >
+              Replay in Producer
+            </Button>
+          )}
         </Space>
       )}
     </Drawer>

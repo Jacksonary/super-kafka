@@ -160,7 +160,6 @@ export interface ConsumerGroupSummary {
   member_count: number;
   coordinator_id: number;
   protocol_type: string;
-  total_lag: number | null;
 }
 
 export interface ConsumerGroupDetail {
@@ -170,7 +169,6 @@ export interface ConsumerGroupDetail {
   protocol_type: string;
   protocol: string;
   members: GroupMember[];
-  topic_lag: TopicLag[];
 }
 
 export interface GroupMember {
@@ -183,12 +181,6 @@ export interface GroupMember {
 export interface AssignedPartition {
   topic: string;
   partition: number;
-}
-
-export interface TopicLag {
-  topic: string;
-  partitions: PartitionLag[];
-  total_lag: number;
 }
 
 export interface PartitionLag {

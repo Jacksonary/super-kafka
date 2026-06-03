@@ -106,13 +106,6 @@ export default function ConsumerGroups() {
     },
     { title: "Members", dataIndex: "member_count", key: "member_count", width: 100, align: "right" },
     {
-      title: "Coordinator",
-      dataIndex: "coordinator_id",
-      key: "coordinator_id",
-      width: 110,
-      align: "right",
-    },
-    {
       title: "Actions",
       key: "actions",
       width: 100,

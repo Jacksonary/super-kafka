@@ -63,22 +63,50 @@ pub async fn fetch_messages(
         // Only track partitions that actually have messages (high > start offset).
         let mut partition_high: std::collections::HashMap<i32, i64> =
             std::collections::HashMap::new();
+
+        let fetch_type = req.fetch_mode.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let end_ms: Option<i64> = req.fetch_mode.get("end_ms").and_then(|v| v.as_i64());
+
         let mut tpl = TopicPartitionList::new();
-        for &p in &target_partitions {
-            let (low, high) = consumer
-                .fetch_watermarks(&req.topic, p, timeout)
-                .map_err(|e| format!("[KAFKA-WATERMARK] partition {p}: {e}"))?;
-            let offset = decide_offset(&req.fetch_mode, low, high, limit, target_partitions.len() as i64)?;
-            tpl.add_partition_offset(&req.topic, p, offset)
-                .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
-            // Skip empty partitions — nothing to consume there
-            let start = match offset {
-                Offset::Beginning => low,
-                Offset::Offset(o) => o,
-                _ => low,
-            };
-            if high > start {
-                partition_high.insert(p, high);
+
+        if fetch_type == "from_timestamp" {
+            let timestamp_ms = req.fetch_mode
+                .get("timestamp")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| "[KAFKA] from_timestamp requires timestamp field".to_string())?;
+
+            let timed_offsets = resolve_offsets_for_timestamp(
+                &consumer, &req.topic, &target_partitions, timestamp_ms, timeout,
+            )?;
+
+            if timed_offsets.is_empty() {
+                return Ok(FetchMessagesResponse { messages: vec![], total_fetched: 0, has_more: false });
+            }
+
+            for (p, start_offset) in &timed_offsets {
+                tpl.add_partition_offset(&req.topic, *p, Offset::Offset(*start_offset))
+                    .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+                let (_, high) = consumer.fetch_watermarks(&req.topic, *p, timeout).unwrap_or((0, 0));
+                if high > *start_offset {
+                    partition_high.insert(*p, high);
+                }
+            }
+        } else {
+            for &p in &target_partitions {
+                let (low, high) = consumer
+                    .fetch_watermarks(&req.topic, p, timeout)
+                    .map_err(|e| format!("[KAFKA-WATERMARK] partition {p}: {e}"))?;
+                let offset = decide_offset(&req.fetch_mode, low, high, limit, target_partitions.len() as i64)?;
+                tpl.add_partition_offset(&req.topic, p, offset)
+                    .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+                let start = match offset {
+                    Offset::Beginning => low,
+                    Offset::Offset(o) => o,
+                    _ => low,
+                };
+                if high > start {
+                    partition_high.insert(p, high);
+                }
             }
         }
         consumer
@@ -108,6 +136,20 @@ pub async fn fetch_messages(
                     consecutive_timeouts = 0;
                     let next_offset = m.offset() + 1;
                     let high = partition_high.get(&m.partition()).copied().unwrap_or(0);
+                    if let Some(end) = end_ms {
+                        let msg_ts = match m.timestamp() {
+                            rdkafka::message::Timestamp::CreateTime(ts) => Some(ts),
+                            rdkafka::message::Timestamp::LogAppendTime(ts) => Some(ts),
+                            _ => None,
+                        };
+                        if let Some(ts) = msg_ts {
+                            if ts > end {
+                                partition_high.remove(&m.partition());
+                                if partition_high.is_empty() { break; }
+                                continue;
+                            }
+                        }
+                    }
                     let kafka_msg = borrowed_to_kafka_message(&m);
                     messages.push(kafka_msg);
                     // Stop tracking this partition once we've consumed up to its high watermark
@@ -149,6 +191,31 @@ pub async fn fetch_messages(
     })
     .await
     .map_err(|e| format!("[RUNTIME] join: {e}"))?
+}
+
+fn resolve_offsets_for_timestamp(
+    consumer: &BaseConsumer,
+    topic: &str,
+    partitions: &[i32],
+    timestamp_ms: i64,
+    timeout: Duration,
+) -> Result<Vec<(i32, i64)>, String> {
+    let mut tpl = TopicPartitionList::new();
+    for &p in partitions {
+        tpl.add_partition_offset(topic, p, Offset::Offset(timestamp_ms))
+            .map_err(|e| format!("[KAFKA] tpl timestamp: {e}"))?;
+    }
+    let result = consumer
+        .offsets_for_times(tpl, timeout)
+        .map_err(|e| format!("[KAFKA-TIMESTAMP] offsets_for_times: {e}"))?;
+    let mut out = Vec::new();
+    for elem in result.elements() {
+        match elem.offset() {
+            Offset::Offset(o) => out.push((elem.partition(), o)),
+            _ => {}
+        }
+    }
+    Ok(out)
 }
 
 fn decide_offset(

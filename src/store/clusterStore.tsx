@@ -97,6 +97,12 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     void refreshCurrentSummary();
   }, [refreshCurrentSummary]);
 
+  useEffect(() => {
+    if (!currentClusterId) return;
+    const id = setInterval(() => { void refreshCurrentSummary(); }, 30_000);
+    return () => clearInterval(id);
+  }, [currentClusterId, refreshCurrentSummary]);
+
   const currentCluster = useMemo(
     () => clusters.find((c) => c.id === currentClusterId) ?? null,
     [clusters, currentClusterId],

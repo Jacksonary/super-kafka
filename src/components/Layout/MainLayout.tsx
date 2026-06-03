@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import logoUrl from "../../assets/logo.png";
-import { Layout, Menu, Progress, Select, Tooltip, Typography, message as antMessage } from "antd";
+import { Alert, Button, Layout, Menu, Progress, Select, Tooltip, Typography, message as antMessage } from "antd";
 import {
   UnorderedListOutlined,
   TeamOutlined,
@@ -52,7 +52,7 @@ function GiteeIcon() {
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { clusters, currentClusterId, setCurrentClusterId, currentSummary, connecting } = useClusterStore();
+  const { clusters, currentClusterId, setCurrentClusterId, currentSummary, connecting, refreshCurrentSummary } = useClusterStore();
   const { token } = theme.useToken();
   const { state: updateState, setState: setUpdateState, fallback, checking, recheck } = useUpdateCheck(__APP_VERSION__);
 
@@ -244,6 +244,7 @@ export default function MainLayout() {
             <div
               onClick={toggleCollapsed}
               style={{
+                position: "relative",
                 height: 40,
                 display: "flex",
                 alignItems: "center",
@@ -264,6 +265,17 @@ export default function MainLayout() {
               }}
             >
               <RightOutlined style={{ fontSize: 12 }} />
+              <div
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  right: 8,
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: statusColor,
+                }}
+              />
             </div>
           </Tooltip>
         )}
@@ -392,6 +404,19 @@ export default function MainLayout() {
             {NAV_ITEMS.find((i) => i.key === selectedKey)?.label}
           </Text>
         </Header>
+        {currentSummary?.status === "error" && !connecting && (
+          <Alert
+            banner
+            type="error"
+            showIcon
+            message={currentSummary.error_message ?? "Cannot connect to cluster"}
+            action={
+              <Button size="small" type="link" onClick={() => void refreshCurrentSummary()}>
+                Reconnect
+              </Button>
+            }
+          />
+        )}
         <Content style={{ padding: 24, background: "#0d1117", overflow: "auto" }}>
           <Routes>
             <Route index element={<Navigate to="/topics" replace />} />

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -6,14 +7,16 @@ import {
   Form,
   Input,
   InputNumber,
+  Progress,
   Select,
   Space,
+  Tag,
   App as AntdApp,
 } from "antd";
 import { DeleteOutlined, PlusOutlined, SendOutlined } from "@ant-design/icons";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
-import type { CompressionCodec, MessageHeader, TopicSummary } from "../types";
+import type { CompressionCodec, KafkaMessage, MessageHeader, TopicSummary } from "../types";
 
 const { TextArea } = Input;
 
@@ -29,6 +32,9 @@ export default function MessageProducer() {
   const [headers, setHeaders] = useState<MessageHeader[]>([]);
   const [compression, setCompression] = useState<CompressionCodec>("none");
   const [sending, setSending] = useState(false);
+  const [repeatCount, setRepeatCount] = useState<number>(1);
+  const [sendProgress, setSendProgress] = useState<{ done: number; total: number } | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
     if (!currentClusterId) return;
@@ -37,6 +43,17 @@ export default function MessageProducer() {
       .then(setTopics)
       .catch((e) => message.error(String(e)));
   }, [currentClusterId, message]);
+
+  useEffect(() => {
+    const state = location.state as { replayMessage?: KafkaMessage; replayTopic?: string } | null;
+    if (!state?.replayMessage) return;
+    const msg = state.replayMessage;
+    if (state.replayTopic) setTopic(state.replayTopic);
+    setKeyText(msg.key_text ?? "");
+    setValueText(msg.value_text ?? "");
+    setHeaders(msg.headers.map((h) => ({ key: h.key, value: h.value ?? "" })));
+    window.history.replaceState({}, "");
+  }, [location.state]);
 
   const updateHeader = useCallback((idx: number, patch: Partial<MessageHeader>) => {
     setHeaders((prev) => prev.map((h, i) => (i === idx ? { ...h, ...patch } : h)));
@@ -49,28 +66,34 @@ export default function MessageProducer() {
   }, []);
 
   async function handleSend() {
-    if (!currentClusterId || !topic) {
-      message.warning("Select a topic first");
-      return;
-    }
-    if (!valueText.trim()) {
-      message.warning("Value cannot be empty");
-      return;
-    }
+    if (!currentClusterId || !topic) { message.warning("Select a topic first"); return; }
+    if (!valueText.trim()) { message.warning("Value cannot be empty"); return; }
     setSending(true);
+    const req = {
+      cluster_id: currentClusterId,
+      topic,
+      partition,
+      key: keyText || null,
+      value: valueText,
+      headers: headers.filter((h) => h.key.trim() !== ""),
+      compression,
+    };
     try {
-      await api.produceMessage({
-        cluster_id: currentClusterId,
-        topic,
-        partition,
-        key: keyText || null,
-        value: valueText,
-        headers: headers.filter((h) => h.key.trim() !== ""),
-        compression,
-      });
-      message.success("Message sent");
+      if (repeatCount <= 1) {
+        await api.produceMessage(req);
+        message.success("Message sent");
+      } else {
+        setSendProgress({ done: 0, total: repeatCount });
+        for (let i = 0; i < repeatCount; i++) {
+          await api.produceMessage(req);
+          setSendProgress({ done: i + 1, total: repeatCount });
+        }
+        message.success("Sent " + repeatCount + " messages");
+        setSendProgress(null);
+      }
     } catch (e) {
       message.error(String(e));
+      setSendProgress(null);
     } finally {
       setSending(false);
     }
@@ -118,6 +141,15 @@ export default function MessageProducer() {
               ]}
             />
           </Form.Item>
+          <Form.Item label="Repeat">
+            <InputNumber
+              min={1}
+              max={1000}
+              value={repeatCount}
+              onChange={(v) => setRepeatCount(v ?? 1)}
+              style={{ width: 100 }}
+            />
+          </Form.Item>
         </Space>
 
         <Form.Item label="Key (optional)">
@@ -129,6 +161,24 @@ export default function MessageProducer() {
         </Form.Item>
 
         <Form.Item label="Value">
+          <Space style={{ marginBottom: 4 }} size={8}>
+            <Button
+              size="small"
+              onClick={() => {
+                try {
+                  setValueText(JSON.stringify(JSON.parse(valueText), null, 2));
+                } catch {
+                  message.warning("Not valid JSON");
+                }
+              }}
+            >
+              Format JSON
+            </Button>
+            {valueText.trim() !== "" && (() => {
+              try { JSON.parse(valueText); return <Tag color="green">Valid JSON</Tag>; }
+              catch { return <Tag color="default">Plain text</Tag>; }
+            })()}
+          </Space>
           <TextArea
             rows={12}
             value={valueText}
@@ -167,7 +217,7 @@ export default function MessageProducer() {
         </Form.Item>
 
         <Form.Item>
-          <Space>
+          <Space direction="vertical" style={{ width: "100%" }}>
             <Button
               type="primary"
               icon={<SendOutlined />}
@@ -176,6 +226,14 @@ export default function MessageProducer() {
             >
               Send Message
             </Button>
+            {sendProgress && (
+              <Progress
+                percent={Math.round((sendProgress.done / sendProgress.total) * 100)}
+                status="active"
+                size="small"
+                style={{ maxWidth: 300 }}
+              />
+            )}
           </Space>
         </Form.Item>
       </Form>

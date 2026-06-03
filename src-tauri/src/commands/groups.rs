@@ -2,14 +2,13 @@ use crate::config;
 use crate::kafka_client::build_client_config;
 use crate::types::{
     AssignedPartition, ClusterConfig, ConsumerGroupDetail, ConsumerGroupSummary, GroupMember,
-    PartitionLag, ResetOffsetRequest, TopicConsumerGroup, TopicLag,
+    PartitionLag, ResetOffsetRequest, TopicConsumerGroup,
 };
 use crate::AppState;
 use rdkafka::admin::AdminOptions;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::time::Duration;
 use tauri::State;
 
@@ -41,7 +40,6 @@ pub async fn list_consumer_groups(
                 member_count: g.members().len() as i32,
                 coordinator_id: -1,
                 protocol_type: g.protocol_type().to_string(),
-                total_lag: None,
             });
         }
         Ok(out)
@@ -64,10 +62,7 @@ pub async fn get_consumer_group_detail(
     let pool = state.pool.clone();
     let id = cluster_id.clone();
     let gid = group_id.clone();
-    let cluster_for_consumer = cluster.clone();
-
     tokio::task::spawn_blocking(move || -> Result<ConsumerGroupDetail, String> {
-        let password = config::load_sasl_password(&id).ok().flatten();
         let bundle = pool.get_or_create(&id)?;
         let groups = bundle
             .admin
@@ -91,67 +86,17 @@ pub async fn get_consumer_group_detail(
             })
             .collect();
 
-        let mut topic_to_partitions: HashMap<String, Vec<i32>> = HashMap::new();
-        for m in &members {
-            for ap in &m.assigned_partitions {
-                topic_to_partitions
-                    .entry(ap.topic.clone())
-                    .or_default()
-                    .push(ap.partition);
-            }
-        }
-
-        // Build a consumer assigned to the group_id to read committed offsets.
-        let mut cfg = build_client_config(&cluster_for_consumer, password.as_deref());
-        cfg.set("group.id", &gid);
-        cfg.set("enable.auto.commit", "false");
-        let consumer: BaseConsumer = cfg
-            .create()
-            .map_err(|e| format!("[KAFKA-CONSUMER] create: {e}"))?;
-
-        let mut topic_lags: Vec<TopicLag> = Vec::new();
-        for (topic, parts) in &topic_to_partitions {
-            let mut tpl = TopicPartitionList::new();
-            for &p in parts {
-                tpl.add_partition_offset(topic, p, Offset::Invalid)
-                    .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
-            }
-            let committed = consumer
-                .committed_offsets(tpl, timeout)
-                .map_err(|e| format!("[KAFKA] committed: {e}"))?;
-
-            let elems: Vec<(i32, i64)> = committed.elements().iter()
-                .map(|elem| {
-                    let current = match elem.offset() { Offset::Offset(o) => o, _ => -1 };
-                    (elem.partition(), current)
-                })
-                .collect();
-            use rayon::prelude::*;
-            let partition_lags: Vec<PartitionLag> = elems.par_iter()
-                .map(|&(partition, current)| {
-                    let (low, high) = bundle.admin.inner()
-                        .fetch_watermarks(topic, partition, timeout)
-                        .unwrap_or((0, 0));
-                    let lag = if current < 0 { high } else { (high - current).max(0) };
-                    PartitionLag { partition, start_offset: low, current_offset: current, log_end_offset: high, lag }
-                })
-                .collect();
-            let total_lag: i64 = partition_lags.iter().map(|p| p.lag).sum();
-            topic_lags.push(TopicLag {
-                topic: topic.clone(),
-                partitions: partition_lags,
-                total_lag,
-            });
-        }
-
+        let group_id = group.name().to_string();
+        let state = group.state().to_string();
+        let protocol_type = group.protocol_type().to_string();
+        let protocol = group.protocol().to_string();
         Ok(ConsumerGroupDetail {
-            group_id: group.name().to_string(),
-            state: group.state().to_string(),
+            group_id,
+            state,
             coordinator_id: -1,
-            protocol_type: group.protocol_type().to_string(),
-            protocol: group.protocol().to_string(),
+            protocol_type,
+            protocol,
             members,
-            topic_lag: topic_lags,
         })
     })
     .await

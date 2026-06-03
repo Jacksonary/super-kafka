@@ -142,7 +142,6 @@ pub struct ConsumerGroupSummary {
     pub member_count: i32,
     pub coordinator_id: i32,
     pub protocol_type: String,
-    pub total_lag: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,7 +152,6 @@ pub struct ConsumerGroupDetail {
     pub protocol_type: String,
     pub protocol: String,
     pub members: Vec<GroupMember>,
-    pub topic_lag: Vec<TopicLag>,
 }
 
 #[derive(Debug, Serialize)]
@@ -168,13 +166,6 @@ pub struct GroupMember {
 pub struct AssignedPartition {
     pub topic: String,
     pub partition: i32,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TopicLag {
-    pub topic: String,
-    pub partitions: Vec<PartitionLag>,
-    pub total_lag: i64,
 }
 
 #[derive(Debug, Serialize)]

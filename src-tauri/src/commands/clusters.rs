@@ -271,6 +271,44 @@ pub async fn get_cluster_summary(
     Ok(summary)
 }
 
+/// Lightweight heartbeat check — reuses the existing connection pool, no TCP re-probe,
+/// no version detection. Returns a minimal ClusterSummary suitable for background polling.
+#[tauri::command]
+pub async fn ping_cluster(
+    state: State<'_, AppState>,
+    cluster_id: String,
+) -> Result<ClusterSummary, String> {
+    let cluster = state
+        .pool
+        .get_config(&cluster_id)
+        .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
+    let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+    let name = cluster.name.clone();
+    let bs = cluster.bootstrap_servers.clone();
+    let pool = state.pool.clone();
+    let id = cluster_id.clone();
+
+    let result = tokio::task::spawn_blocking(move || match pool.get_or_create(&id) {
+        Ok(bundle) => match bundle.admin.inner().fetch_metadata(None, timeout) {
+            Ok(meta) => Ok(meta.brokers().len() as u32),
+            Err(e) => Err(format!("[KAFKA-METADATA] {e}")),
+        },
+        Err(e) => Err(e),
+    })
+    .await
+    .map_err(|e| format!("[RUNTIME] join: {e}"))??;
+
+    Ok(ClusterSummary {
+        id: cluster_id,
+        name,
+        bootstrap_servers: bs,
+        status: "connected".to_string(),
+        broker_count: Some(result),
+        kafka_version: None, // preserved from last full get_cluster_summary
+        error_message: None,
+    })
+}
+
 #[tauri::command]
 pub async fn list_brokers(
     state: State<'_, AppState>,

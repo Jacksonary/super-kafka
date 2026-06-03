@@ -57,6 +57,7 @@ pub fn run() {
             commands::clusters::test_connection,
             commands::clusters::save_sasl_password,
             commands::clusters::get_cluster_summary,
+            commands::clusters::ping_cluster,
             commands::clusters::list_brokers,
             commands::topics::list_topics,
             commands::topics::get_topic_detail,

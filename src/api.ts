@@ -124,6 +124,10 @@ export const api = {
     return tauriInvoke<T.ClusterSummary>("get_cluster_summary", { clusterId });
   },
 
+  async pingCluster(clusterId: string) {
+    return tauriInvoke<T.ClusterSummary>("ping_cluster", { clusterId });
+  },
+
   async listBrokers(clusterId: string) {
     return tauriInvoke<T.BrokerInfo[]>("list_brokers", { clusterId });
   },

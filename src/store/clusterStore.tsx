@@ -97,11 +97,27 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     void refreshCurrentSummary();
   }, [refreshCurrentSummary]);
 
+  // Background heartbeat — lightweight ping, no connecting animation, preserves kafka_version
   useEffect(() => {
     if (!currentClusterId) return;
-    const id = setInterval(() => { void refreshCurrentSummary(); }, 30_000);
+    const id = setInterval(async () => {
+      try {
+        const ping = await api.pingCluster(currentClusterId);
+        setCurrentSummary((prev) => ({
+          ...ping,
+          // keep the kafka_version from the last full summary
+          kafka_version: prev?.kafka_version ?? ping.kafka_version,
+        }));
+      } catch (e) {
+        setCurrentSummary((prev) => prev ? {
+          ...prev,
+          status: "error",
+          error_message: e instanceof Error ? e.message : String(e),
+        } : null);
+      }
+    }, 30_000);
     return () => clearInterval(id);
-  }, [currentClusterId, refreshCurrentSummary]);
+  }, [currentClusterId]);
 
   const currentCluster = useMemo(
     () => clusters.find((c) => c.id === currentClusterId) ?? null,

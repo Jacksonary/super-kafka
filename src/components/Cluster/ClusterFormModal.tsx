@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   Modal,
   Form,
@@ -108,17 +107,6 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
     return { config, password: values.sasl_password || null };
   }
 
-  async function pickCertFile(field: "ssl_ca_cert_path" | "ssl_client_cert_path" | "ssl_client_key_path") {
-    try {
-      const selected = await openFileDialog({
-        multiple: false,
-        filters: [{ name: "Certificates", extensions: ["pem", "crt", "cer", "key", "p12", "pfx"] }],
-      });
-      if (selected) form.setFieldValue(field, selected as string);
-    } catch {
-      // user cancelled
-    }
-  }
 
   async function handleTest() {
     try {
@@ -234,28 +222,13 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
               <Text type="secondary">SSL</Text>
             </Divider>
             <Form.Item name="ssl_ca_cert_path" label="CA Certificate Path">
-              <Space.Compact style={{ width: "100%" }}>
-                <Form.Item name="ssl_ca_cert_path" noStyle>
-                  <Input readOnly placeholder="/etc/ssl/certs/ca.pem" />
-                </Form.Item>
-                <Button onClick={() => void pickCertFile("ssl_ca_cert_path")}>Browse</Button>
-              </Space.Compact>
+              <Input placeholder="/etc/ssl/certs/ca.pem" />
             </Form.Item>
             <Form.Item name="ssl_client_cert_path" label="Client Certificate Path">
-              <Space.Compact style={{ width: "100%" }}>
-                <Form.Item name="ssl_client_cert_path" noStyle>
-                  <Input readOnly placeholder="/etc/ssl/certs/client.pem" />
-                </Form.Item>
-                <Button onClick={() => void pickCertFile("ssl_client_cert_path")}>Browse</Button>
-              </Space.Compact>
+              <Input placeholder="/etc/ssl/certs/client.pem" />
             </Form.Item>
             <Form.Item name="ssl_client_key_path" label="Client Key Path">
-              <Space.Compact style={{ width: "100%" }}>
-                <Form.Item name="ssl_client_key_path" noStyle>
-                  <Input readOnly placeholder="/etc/ssl/private/client.key" />
-                </Form.Item>
-                <Button onClick={() => void pickCertFile("ssl_client_key_path")}>Browse</Button>
-              </Space.Compact>
+              <Input placeholder="/etc/ssl/private/client.key" />
             </Form.Item>
           </>
         )}

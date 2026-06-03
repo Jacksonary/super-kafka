@@ -43,8 +43,11 @@ pub fn save_clusters(configs: &[ClusterConfig]) -> Result<(), String> {
     let path = clusters_path()?;
     let raw = serde_yaml::to_string(configs)
         .map_err(|e| format!("[CONFIG] failed to serialize clusters: {e}"))?;
-    fs::write(&path, raw)
-        .map_err(|e| format!("[CONFIG] failed to write {}: {e}", path.display()))?;
+    let tmp = path.with_extension("yaml.tmp");
+    fs::write(&tmp, &raw)
+        .map_err(|e| format!("[CONFIG] failed to write tmp {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, &path)
+        .map_err(|e| format!("[CONFIG] failed to rename tmp -> clusters.yaml: {e}"))?;
     Ok(())
 }
 
@@ -66,8 +69,11 @@ pub fn save_app_config(config: &AppConfig) -> Result<(), String> {
     let path = app_config_path()?;
     let raw = serde_yaml::to_string(config)
         .map_err(|e| format!("[CONFIG] failed to serialize app config: {e}"))?;
-    fs::write(&path, raw)
-        .map_err(|e| format!("[CONFIG] failed to write {}: {e}", path.display()))?;
+    let tmp = path.with_extension("yaml.tmp");
+    fs::write(&tmp, &raw)
+        .map_err(|e| format!("[CONFIG] failed to write tmp {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, &path)
+        .map_err(|e| format!("[CONFIG] failed to rename tmp -> app.yaml: {e}"))?;
     Ok(())
 }
 

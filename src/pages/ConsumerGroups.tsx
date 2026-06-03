@@ -61,7 +61,7 @@ export default function ConsumerGroups() {
 
   const loadDetail = useCallback(
     async (groupId: string) => {
-      if (!currentClusterId || details[groupId]) return;
+      if (!currentClusterId) return;
       try {
         const d = await api.getConsumerGroupDetail(currentClusterId, groupId);
         setDetails((prev) => ({ ...prev, [groupId]: d }));
@@ -69,7 +69,7 @@ export default function ConsumerGroups() {
         message.error(String(e));
       }
     },
-    [currentClusterId, details, message],
+    [currentClusterId, message],
   );
 
   const handleDelete = useCallback(

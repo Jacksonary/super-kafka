@@ -117,7 +117,7 @@ pub async fn save_cluster(
             .unwrap_or(0);
     }
 
-    let mut clusters = config::load_clusters()?;
+    let mut clusters = state.pool.list_configs();
     if let Some(pos) = clusters.iter().position(|c| c.id == config.id) {
         clusters[pos] = config.clone();
     } else {
@@ -134,7 +134,7 @@ pub async fn delete_cluster(
     state: State<'_, AppState>,
     cluster_id: String,
 ) -> Result<serde_json::Value, String> {
-    let mut clusters = config::load_clusters()?;
+    let mut clusters = state.pool.list_configs();
     clusters.retain(|c| c.id != cluster_id);
     config::save_clusters(&clusters)?;
     state.pool.remove_config(&cluster_id);

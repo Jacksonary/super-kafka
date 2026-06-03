@@ -234,14 +234,14 @@ fn borrowed_to_kafka_message(m: &rdkafka::message::BorrowedMessage<'_>) -> Kafka
 
 fn decode_payload(bytes: &[u8]) -> (Option<String>, String) {
     if bytes.is_empty() {
-        return (Some(String::new()), "utf8".to_string());
+        return (None, "binary".to_string());
     }
     match std::str::from_utf8(bytes) {
         Ok(s) => {
-            if serde_json::from_str::<Value>(s).is_ok() {
+            if serde_json::from_str::<serde_json::Value>(s).is_ok() {
                 (Some(s.to_string()), "json".to_string())
             } else {
-                (Some(s.to_string()), "utf8".to_string())
+                (Some(s.to_string()), "text".to_string())
             }
         }
         Err(_) => (None, "binary".to_string()),

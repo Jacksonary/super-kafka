@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { api } from "../api";
 import type { ClusterConfig, ClusterSummary } from "../types";
 
@@ -20,6 +20,7 @@ const LS_KEY = "super-kafka:current-cluster-id";
 
 export function ClusterStoreProvider({ children }: { children: React.ReactNode }) {
   const [clusters, setClusters] = useState<ClusterConfig[]>([]);
+  const clustersRef = useRef<ClusterConfig[]>([]);
   const [loadingClusters, setLoadingClusters] = useState<boolean>(false);
   const [currentClusterId, setCurrentClusterIdState] = useState<string | null>(() => {
     try {
@@ -46,6 +47,7 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     try {
       const list = await api.listClusters();
       setClusters(list);
+      clustersRef.current = list;
       // Auto-select first cluster if none selected or stored id is gone
       setCurrentClusterIdState((cur) => {
         if (cur && list.some((c) => c.id === cur)) return cur;
@@ -75,8 +77,8 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     } catch (e) {
       setCurrentSummary({
         id: currentClusterId,
-        name: clusters.find((c) => c.id === currentClusterId)?.name ?? currentClusterId,
-        bootstrap_servers: clusters.find((c) => c.id === currentClusterId)?.bootstrap_servers ?? "",
+        name: clustersRef.current.find((c) => c.id === currentClusterId)?.name ?? currentClusterId,
+        bootstrap_servers: clustersRef.current.find((c) => c.id === currentClusterId)?.bootstrap_servers ?? "",
         status: "error",
         broker_count: null,
         kafka_version: null,
@@ -85,7 +87,7 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     } finally {
       setConnecting(false);
     }
-  }, [currentClusterId, clusters]);
+  }, [currentClusterId]);
 
   useEffect(() => {
     void refreshClusters();

@@ -8,7 +8,6 @@ import {
   InputNumber,
   Select,
   Space,
-  Typography,
   App as AntdApp,
 } from "antd";
 import { DeleteOutlined, PlusOutlined, SendOutlined } from "@ant-design/icons";
@@ -16,7 +15,6 @@ import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
 import type { CompressionCodec, MessageHeader, TopicSummary } from "../types";
 
-const { Text } = Typography;
 const { TextArea } = Input;
 
 export default function MessageProducer() {
@@ -31,7 +29,6 @@ export default function MessageProducer() {
   const [headers, setHeaders] = useState<MessageHeader[]>([]);
   const [compression, setCompression] = useState<CompressionCodec>("none");
   const [sending, setSending] = useState(false);
-  const [lastResult, setLastResult] = useState<{ partition: number; offset: number } | null>(null);
 
   useEffect(() => {
     if (!currentClusterId) return;
@@ -62,7 +59,7 @@ export default function MessageProducer() {
     }
     setSending(true);
     try {
-      const res = await api.produceMessage({
+      await api.produceMessage({
         cluster_id: currentClusterId,
         topic,
         partition,
@@ -71,8 +68,7 @@ export default function MessageProducer() {
         headers: headers.filter((h) => h.key.trim() !== ""),
         compression,
       });
-      setLastResult(res);
-      message.success(`Sent to partition ${res.partition}, offset ${res.offset}`);
+      message.success("Message sent");
     } catch (e) {
       message.error(String(e));
     } finally {
@@ -180,11 +176,6 @@ export default function MessageProducer() {
             >
               Send Message
             </Button>
-            {lastResult && (
-              <Text type="success">
-                Last: partition {lastResult.partition}, offset {lastResult.offset}
-              </Text>
-            )}
           </Space>
         </Form.Item>
       </Form>

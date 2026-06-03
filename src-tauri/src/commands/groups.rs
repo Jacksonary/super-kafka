@@ -358,8 +358,7 @@ pub async fn reset_offset(
                     Offset::Offset(off)
                 }
                 "timestamp" => {
-                    // Not implemented end-to-end here; fall back to earliest.
-                    Offset::Offset(low)
+                    return Err("[KAFKA-RESET] timestamp-based reset is not yet supported".to_string());
                 }
                 _ => Offset::Offset(low),
             };

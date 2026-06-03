@@ -96,7 +96,7 @@ pub async fn fetch_messages(
 
         let mut messages: Vec<KafkaMessage> = Vec::with_capacity(limit as usize);
         let started = std::time::Instant::now();
-        let max_wait = Duration::from_secs(30);
+        let max_wait = timeout; // use cluster's configured request_timeout_ms
         let mut consecutive_timeouts = 0usize;
 
         while messages.len() < limit as usize {
@@ -259,9 +259,9 @@ pub async fn produce_message(
         .ok_or_else(|| format!("[CONFIG] cluster `{}` not found", req.cluster_id))?;
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
     let pool = state.pool.clone();
-    let password = crate::config::load_sasl_password(&req.cluster_id).ok().flatten();
 
     tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        let password = crate::config::load_sasl_password(&req.cluster_id).ok().flatten();
         let mut headers = OwnedHeaders::new();
         for h in &req.headers {
             headers = headers.insert(Header {
@@ -325,7 +325,6 @@ pub async fn start_live_consume(
         .pool
         .get_config(&req.cluster_id)
         .ok_or_else(|| format!("[CONFIG] cluster `{}` not found", req.cluster_id))?;
-    let password = config::load_sasl_password(&req.cluster_id).ok().flatten();
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
 
     // 停掉同 session_id 的旧实例（前端重连场景）
@@ -340,6 +339,7 @@ pub async fn start_live_consume(
     let partition_filter = req.partition;
 
     let handle = std::thread::spawn(move || {
+        let password = config::load_sasl_password(&req.cluster_id).ok().flatten();
         let mut cfg = build_client_config(&cluster, password.as_deref());
         cfg.set("group.id", format!("super-kafka-live-{}", uuid::Uuid::new_v4()));
         cfg.set("enable.auto.commit", "false");

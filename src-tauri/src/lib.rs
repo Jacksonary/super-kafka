@@ -11,6 +11,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use crate::cluster_pool::ClusterPool;
+use crate::types::AppConfig;
 
 pub struct LiveSession {
     pub running: Arc<AtomicBool>,
@@ -21,6 +22,7 @@ pub struct LiveSession {
 pub struct AppState {
     pub pool: Arc<ClusterPool>,
     pub live_sessions: Mutex<HashMap<String, LiveSession>>,
+    pub app_config: parking_lot::Mutex<AppConfig>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -29,6 +31,7 @@ pub fn run() {
     if let Ok(configs) = config::load_clusters() {
         pool.load_configs(configs);
     }
+    let app_config_init = config::load_app_config().unwrap_or_default();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -45,6 +48,7 @@ pub fn run() {
         .manage(AppState {
             pool,
             live_sessions: Mutex::new(HashMap::new()),
+            app_config: parking_lot::Mutex::new(app_config_init),
         })
         .invoke_handler(tauri::generate_handler![
             commands::clusters::list_clusters,

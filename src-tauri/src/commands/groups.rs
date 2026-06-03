@@ -64,10 +64,10 @@ pub async fn get_consumer_group_detail(
     let pool = state.pool.clone();
     let id = cluster_id.clone();
     let gid = group_id.clone();
-    let password = config::load_sasl_password(&cluster_id).ok().flatten();
     let cluster_for_consumer = cluster.clone();
 
     tokio::task::spawn_blocking(move || -> Result<ConsumerGroupDetail, String> {
+        let password = config::load_sasl_password(&id).ok().flatten();
         let bundle = pool.get_or_create(&id)?;
         let groups = bundle
             .admin
@@ -120,29 +120,23 @@ pub async fn get_consumer_group_detail(
                 .committed_offsets(tpl, timeout)
                 .map_err(|e| format!("[KAFKA] committed: {e}"))?;
 
-            let mut partition_lags: Vec<PartitionLag> = Vec::new();
-            let mut total_lag: i64 = 0;
-            for elem in committed.elements() {
-                let partition = elem.partition();
-                let current = match elem.offset() {
-                    Offset::Offset(o) => o,
-                    _ => -1,
-                };
-                let (low, high) = bundle
-                    .admin
-                    .inner()
-                    .fetch_watermarks(topic, partition, timeout)
-                    .unwrap_or((0, 0));
-                let lag = if current < 0 { high } else { (high - current).max(0) };
-                total_lag += lag;
-                partition_lags.push(PartitionLag {
-                    partition,
-                    start_offset: low,
-                    current_offset: current,
-                    log_end_offset: high,
-                    lag,
-                });
-            }
+            let elems: Vec<(i32, i64)> = committed.elements().iter()
+                .map(|elem| {
+                    let current = match elem.offset() { Offset::Offset(o) => o, _ => -1 };
+                    (elem.partition(), current)
+                })
+                .collect();
+            use rayon::prelude::*;
+            let partition_lags: Vec<PartitionLag> = elems.par_iter()
+                .map(|&(partition, current)| {
+                    let (low, high) = bundle.admin.inner()
+                        .fetch_watermarks(topic, partition, timeout)
+                        .unwrap_or((0, 0));
+                    let lag = if current < 0 { high } else { (high - current).max(0) };
+                    PartitionLag { partition, start_offset: low, current_offset: current, log_end_offset: high, lag }
+                })
+                .collect();
+            let total_lag: i64 = partition_lags.iter().map(|p| p.lag).sum();
             topic_lags.push(TopicLag {
                 topic: topic.clone(),
                 partitions: partition_lags,
@@ -280,9 +274,9 @@ pub async fn reset_offset(
         .get_config(&req.cluster_id)
         .ok_or_else(|| format!("[CONFIG] cluster `{}` not found", req.cluster_id))?;
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
-    let password = config::load_sasl_password(&req.cluster_id).ok().flatten();
 
     tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        let password = config::load_sasl_password(&req.cluster_id).ok().flatten();
         let mut cfg = build_client_config(&cluster, password.as_deref());
         cfg.set("group.id", &req.group_id);
         cfg.set("enable.auto.commit", "false");
@@ -410,25 +404,23 @@ fn fetch_group_topic_lag(
         .committed_offsets(tpl, timeout)
         .map_err(|e| format!("[KAFKA] committed: {e}"))?;
 
-    let mut out = Vec::new();
-    for elem in committed.elements() {
-        let partition = elem.partition();
-        let current = match elem.offset() {
-            Offset::Offset(o) => o,
-            _ => -1,
-        };
-        let (low, high) = consumer
-            .fetch_watermarks(topic, partition, timeout)
-            .unwrap_or((0, 0));
-        let lag = if current < 0 { high } else { (high - current).max(0) };
-        out.push(PartitionLag {
-            partition,
-            start_offset: low,
-            current_offset: current,
-            log_end_offset: high,
-            lag,
-        });
-    }
+    // Collect committed offsets (already batched, fast)
+    let elems: Vec<(i32, i64)> = committed.elements().iter()
+        .map(|elem| {
+            let current = match elem.offset() { Offset::Offset(o) => o, _ => -1 };
+            (elem.partition(), current)
+        })
+        .collect();
+
+    // Parallel watermark fetches
+    use rayon::prelude::*;
+    let mut out: Vec<PartitionLag> = elems.par_iter()
+        .map(|&(partition, current)| {
+            let (low, high) = consumer.fetch_watermarks(topic, partition, timeout).unwrap_or((0, 0));
+            let lag = if current < 0 { high } else { (high - current).max(0) };
+            PartitionLag { partition, start_offset: low, current_offset: current, log_end_offset: high, lag }
+        })
+        .collect();
     out.sort_by_key(|p| p.partition);
     Ok(out)
 }
@@ -445,9 +437,9 @@ pub async fn get_topic_group_partition_lag(
         .get_config(&cluster_id)
         .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
-    let password = config::load_sasl_password(&cluster_id).ok().flatten();
 
     tokio::task::spawn_blocking(move || {
+        let password = config::load_sasl_password(&cluster_id).ok().flatten();
         fetch_group_topic_lag(&cluster, password.as_deref(), &topic, &group_id, timeout)
     })
     .await
@@ -467,9 +459,9 @@ pub async fn list_topic_consumer_groups(
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
     let pool = state.pool.clone();
     let id = cluster_id.clone();
-    let password = config::load_sasl_password(&cluster_id).ok().flatten();
 
     tokio::task::spawn_blocking(move || -> Result<Vec<TopicConsumerGroup>, String> {
+        let password = config::load_sasl_password(&id).ok().flatten();
         let bundle = pool.get_or_create(&id)?;
         let groups = bundle
             .admin
@@ -477,43 +469,40 @@ pub async fn list_topic_consumer_groups(
             .fetch_group_list(None, timeout)
             .map_err(|e| format!("[KAFKA-GROUPS] {e}"))?;
 
-        let mut out = Vec::new();
-        for g in groups.groups() {
-            // Only consumer groups (skip connect / other protocol types).
-            let ptype = g.protocol_type();
-            if !ptype.is_empty() && ptype != "consumer" {
-                continue;
-            }
-            let group_id = g.name();
-            // A single group's transient failure shouldn't abort the whole list.
-            let lags =
-                match fetch_group_topic_lag(&cluster, password.as_deref(), &topic, group_id, timeout)
-                {
+        // Collect to owned data (GroupInfo is not Send)
+        let relevant: Vec<(String, String)> = groups.groups().iter()
+            .filter(|g| {
+                let ptype = g.protocol_type();
+                ptype.is_empty() || ptype == "consumer"
+            })
+            .map(|g| (g.name().to_string(), g.state().to_string()))
+            .collect();
+
+        use rayon::prelude::*;
+        let mut out: Vec<TopicConsumerGroup> = relevant
+            .par_iter()
+            .filter_map(|(group_id, state)| {
+                let lags = match fetch_group_topic_lag(&cluster, password.as_deref(), &topic, group_id, timeout) {
                     Ok(l) => l,
-                    // One group's failure shouldn't abort the whole list, but surface it.
                     Err(e) => {
                         eprintln!("[list_topic_consumer_groups] skip group `{group_id}`: {e}");
-                        continue;
+                        return None;
                     }
                 };
-            // Considered a consumer of this topic iff it has a committed offset on some
-            // partition. Limitation: a group whose committed offsets were purged by
-            // `offsets.retention.minutes`, or that never committed here, can't be
-            // detected this way.
-            if !lags.iter().any(|p| p.current_offset >= 0) {
-                continue;
-            }
-            let total_lag: i64 = lags
-                .iter()
-                .filter(|p| p.current_offset >= 0)
-                .map(|p| p.lag)
-                .sum();
-            out.push(TopicConsumerGroup {
-                group_id: group_id.to_string(),
-                state: g.state().to_string(),
-                total_lag,
-            });
-        }
+                if !lags.iter().any(|p| p.current_offset >= 0) {
+                    return None;
+                }
+                let total_lag: i64 = lags.iter()
+                    .filter(|p| p.current_offset >= 0)
+                    .map(|p| p.lag)
+                    .sum();
+                Some(TopicConsumerGroup {
+                    group_id: group_id.clone(),
+                    state: state.clone(),
+                    total_lag,
+                })
+            })
+            .collect();
         out.sort_by(|a, b| a.group_id.cmp(&b.group_id));
         Ok(out)
     })

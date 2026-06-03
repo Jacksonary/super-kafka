@@ -89,21 +89,32 @@ pub async fn get_topic_detail(
             .find(|t| t.name() == topic_name)
             .ok_or_else(|| format!("[KAFKA] topic `{topic_name}` not found"))?;
 
-        let mut partitions = Vec::with_capacity(topic_meta.partitions().len());
-        for p in topic_meta.partitions() {
-            let (low, high) = client
-                .fetch_watermarks(&topic_name, p.id(), timeout)
-                .unwrap_or((0, 0));
-            partitions.push(PartitionInfo {
-                partition_id: p.id(),
-                leader: p.leader(),
-                replicas: p.replicas().to_vec(),
-                isr: p.isr().to_vec(),
-                log_start_offset: low,
-                log_end_offset: high,
-                message_count: (high - low).max(0),
-            });
-        }
+        // Collect partition metadata (leaders, replicas, isr) — no network, instant
+        let part_meta: Vec<(i32, i32, Vec<i32>, Vec<i32>)> = topic_meta.partitions()
+            .iter()
+            .map(|p| (p.id(), p.leader(), p.replicas().to_vec(), p.isr().to_vec()))
+            .collect();
+
+        // Parallel watermark fetches — each is an independent broker round-trip
+        use rayon::prelude::*;
+        let mut partitions: Vec<PartitionInfo> = part_meta
+            .par_iter()
+            .map(|(id, leader, replicas, isr)| {
+                let (low, high) = client
+                    .fetch_watermarks(&topic_name, *id, timeout)
+                    .unwrap_or((0, 0));
+                PartitionInfo {
+                    partition_id: *id,
+                    leader: *leader,
+                    replicas: replicas.clone(),
+                    isr: isr.clone(),
+                    log_start_offset: low,
+                    log_end_offset: high,
+                    message_count: (high - low).max(0),
+                }
+            })
+            .collect();
+        partitions.sort_by_key(|p| p.partition_id);
         Ok((partitions, topic_name))
     })
     .await

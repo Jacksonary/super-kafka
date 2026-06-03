@@ -1,12 +1,10 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use rdkafka::consumer::BaseConsumer;
-use rdkafka::consumer::Consumer;
 use tauri::State;
 use tokio::time::timeout as tokio_timeout;
 
 use crate::config;
-use crate::kafka_client::{build_client_config, create_bundle};
+use crate::kafka_client::create_bundle;
 use crate::types::{BrokerInfo, ClusterConfig, ClusterSummary, TestConnectionResult};
 use crate::AppState;
 
@@ -322,10 +320,6 @@ pub async fn list_brokers(
     let pool = state.pool.clone();
     let id = cluster_id.clone();
 
-    let pw = config::load_sasl_password(&cluster_id).ok().flatten();
-    let mut consumer_cfg = build_client_config(&cluster, pw.as_deref());
-    consumer_cfg.set("group.id", format!("super-kafka-meta-{}", uuid::Uuid::new_v4()));
-
     let brokers = tokio::task::spawn_blocking(move || -> Result<Vec<BrokerInfo>, String> {
         let bundle = pool.get_or_create(&id)?;
         let meta = bundle
@@ -334,14 +328,6 @@ pub async fn list_brokers(
             .fetch_metadata(None, timeout)
             .map_err(|e| format!("[KAFKA-METADATA] {e}"))?;
 
-        let controller_id: i32 = match consumer_cfg.create::<BaseConsumer>() {
-            Ok(c) => c
-                .fetch_metadata(None, timeout)
-                .map(|m| m.orig_broker_id())
-                .unwrap_or(-1),
-            Err(_) => -1,
-        };
-
         Ok(meta
             .brokers()
             .iter()
@@ -349,8 +335,6 @@ pub async fn list_brokers(
                 id: b.id(),
                 host: b.host().to_string(),
                 port: b.port(),
-                rack: None,
-                is_controller: b.id() == controller_id,
             })
             .collect())
     })

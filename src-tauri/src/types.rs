@@ -36,8 +36,6 @@ pub struct BrokerInfo {
     pub id: i32,
     pub host: String,
     pub port: i32,
-    pub rack: Option<String>,
-    pub is_controller: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,8 +44,6 @@ pub struct TopicSummary {
     pub partition_count: i32,
     pub replication_factor: i32,
     pub is_internal: bool,
-    pub message_count: Option<i64>,
-    pub size_bytes: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,15 +136,12 @@ pub struct ConsumerGroupSummary {
     pub group_id: String,
     pub state: String,
     pub member_count: i32,
-    pub protocol_type: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ConsumerGroupDetail {
     pub group_id: String,
     pub state: String,
-    pub protocol_type: String,
-    pub protocol: String,
     pub members: Vec<GroupMember>,
 }
 

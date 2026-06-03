@@ -46,8 +46,6 @@ export interface BrokerInfo {
   id: number;
   host: string;
   port: number;
-  rack: string | null;
-  is_controller: boolean;
 }
 
 // ── Topic ─────────────────────────────────────────────────
@@ -57,8 +55,6 @@ export interface TopicSummary {
   partition_count: number;
   replication_factor: number;
   is_internal: boolean;
-  message_count: number | null;     // sum of high-water-marks，近似值
-  size_bytes: number | null;        // 如果 broker 不支持则 null
 }
 
 export interface PartitionInfo {
@@ -158,14 +154,11 @@ export interface ConsumerGroupSummary {
   group_id: string;
   state: ConsumerGroupState;
   member_count: number;
-  protocol_type: string;
 }
 
 export interface ConsumerGroupDetail {
   group_id: string;
   state: ConsumerGroupState;
-  protocol_type: string;
-  protocol: string;
   members: GroupMember[];
 }
 

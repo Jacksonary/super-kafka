@@ -52,8 +52,6 @@ pub async fn list_topics(
                 partition_count,
                 replication_factor,
                 is_internal,
-                message_count: None,
-                size_bytes: None,
             });
         }
         Ok(out)

@@ -21,14 +21,8 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-anyhow = "1"
-chrono = { version = "0.4", features = ["serde"] }
-async-trait = "0.1"
 parking_lot = "0.12"
 rayon = "1"
-thiserror = "2"
-base64 = "0.22"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

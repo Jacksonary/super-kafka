@@ -38,7 +38,6 @@ pub async fn list_consumer_groups(
                 group_id: g.name().to_string(),
                 state: g.state().to_string(),
                 member_count: g.members().len() as i32,
-                coordinator_id: -1,
                 protocol_type: g.protocol_type().to_string(),
             });
         }
@@ -93,7 +92,6 @@ pub async fn get_consumer_group_detail(
         Ok(ConsumerGroupDetail {
             group_id,
             state,
-            coordinator_id: -1,
             protocol_type,
             protocol,
             members,

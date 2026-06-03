@@ -158,14 +158,12 @@ export interface ConsumerGroupSummary {
   group_id: string;
   state: ConsumerGroupState;
   member_count: number;
-  coordinator_id: number;
   protocol_type: string;
 }
 
 export interface ConsumerGroupDetail {
   group_id: string;
   state: ConsumerGroupState;
-  coordinator_id: number;
   protocol_type: string;
   protocol: string;
   members: GroupMember[];

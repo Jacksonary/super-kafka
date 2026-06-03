@@ -55,7 +55,6 @@
     }
   },
   "plugins": {
-    "dialog": {},
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxMTIwQkJDNjI3MkZBOEQKUldTTituSml2QXNTc1hjWW1kSHBzQTBSSGVaZk1CWThYeGd3QlVuT3FaVnlFQnlCTHZXL29JU1cK",
       "endpoints": [

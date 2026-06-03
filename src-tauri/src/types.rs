@@ -140,7 +140,6 @@ pub struct ConsumerGroupSummary {
     pub group_id: String,
     pub state: String,
     pub member_count: i32,
-    pub coordinator_id: i32,
     pub protocol_type: String,
 }
 
@@ -148,7 +147,6 @@ pub struct ConsumerGroupSummary {
 pub struct ConsumerGroupDetail {
     pub group_id: String,
     pub state: String,
-    pub coordinator_id: i32,
     pub protocol_type: String,
     pub protocol: String,
     pub members: Vec<GroupMember>,

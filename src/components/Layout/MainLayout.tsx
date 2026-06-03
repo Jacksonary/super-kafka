@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import logoUrl from "../../assets/logo.png";
-import { Alert, Button, Layout, Menu, Progress, Select, Tooltip, Typography, message as antMessage } from "antd";
+import { Alert, Button, Layout, Menu, Modal, Progress, Select, Tooltip, Typography, message as antMessage } from "antd";
 import {
   UnorderedListOutlined,
   TeamOutlined,
@@ -13,6 +13,7 @@ import {
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { useUpdateCheck } from "../../useUpdateCheck";
 import { theme } from "antd";
 import { Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
@@ -56,6 +57,9 @@ export default function MainLayout() {
   const { token } = theme.useToken();
   const { state: updateState, setState: setUpdateState, fallback, checking, recheck } = useUpdateCheck(__APP_VERSION__);
 
+  const readyVersionRef = useRef<string>("");
+  const pendingUpdateRef = useRef<Update | null>(null);
+
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
@@ -72,14 +76,35 @@ export default function MainLayout() {
     });
   }, []);
 
+  function showRestartModal(version: string) {
+    Modal.confirm({
+      title: "Update ready",
+      content: version
+        ? `Version ${version} has been downloaded. Restart now to apply the update, or continue working and restart later.`
+        : `An update has been downloaded. Restart now to apply it, or continue working and restart later.`,
+      okText: "Restart now",
+      cancelText: "Later",
+      onOk: async () => {
+        if (pendingUpdateRef.current) {
+          try {
+            await pendingUpdateRef.current.install();
+          } catch { /* ignore, process will relaunch anyway */ }
+        }
+        void relaunch();
+      },
+    });
+  }
+
   const handleUpdate = async () => {
     if (updateState.status !== "available") return;
     const upd = updateState.update;
+    const version = updateState.version;
+    pendingUpdateRef.current = upd;
     let total = 0;
     let downloaded = 0;
     setUpdateState({ status: "downloading", progress: 0 });
     try {
-      await upd.downloadAndInstall((evt) => {
+      await upd.download((evt) => {
         if (evt.event === "Started" && evt.data.contentLength) {
           total = evt.data.contentLength;
         } else if (evt.event === "Progress") {
@@ -87,7 +112,9 @@ export default function MainLayout() {
           if (total > 0) setUpdateState({ status: "downloading", progress: Math.round((downloaded / total) * 100) });
         }
       });
+      readyVersionRef.current = version;
       setUpdateState({ status: "ready" });
+      showRestartModal(version);
     } catch (e) {
       setUpdateState({ status: "error", message: String(e) });
     }
@@ -322,7 +349,7 @@ export default function MainLayout() {
                   <Progress percent={updateState.progress} size="small" showInfo={false} strokeColor={token.colorWarning} />
                 </div>
               ) : updateState.status === "ready" ? (
-                <a href="#" onClick={(e) => { e.preventDefault(); relaunch(); }} style={{ cursor: "pointer", textDecoration: "none" }}>
+                <a href="#" onClick={(e) => { e.preventDefault(); showRestartModal(readyVersionRef.current); }} style={{ cursor: "pointer", textDecoration: "none" }}>
                   <Text style={{ fontSize: 11, color: token.colorSuccessText }}>
                     Update ready — restart
                   </Text>

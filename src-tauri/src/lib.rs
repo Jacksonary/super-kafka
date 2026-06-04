@@ -77,7 +77,6 @@ pub fn run() {
             commands::groups::get_topic_group_partition_lag,
             commands::settings::get_app_config,
             commands::settings::save_app_config,
-            commands::update::check_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -30,7 +30,7 @@ import { exportMessages } from "../utils/export";
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
-type FetchModeKind = "latest" | "from_offset" | "time_range";
+type FetchModeKind = "earliest" | "latest" | "from_offset" | "time_range";
 type ViewMode = "fetch" | "live";
 
 const LIVE_MAX_BUFFER = 500;
@@ -49,8 +49,6 @@ export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }
   const [topic, setTopic] = useState<string | null>(embeddedTopic ?? null);
   const [partition, setPartition] = useState<number | null>(null);
   const [modeKind, setModeKind] = useState<FetchModeKind>("latest");
-  const [latestCount, setLatestCount] = useState<number>(50);
-  const [fromOffsetPartition, setFromOffsetPartition] = useState<number>(0);
   const [fromOffset, setFromOffset] = useState<number>(0);
   const [timeRange, setTimeRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [limit, setLimit] = useState<number>(100);
@@ -83,16 +81,19 @@ export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }
   }, [embeddedTopic]);
 
   const fetchMode = useMemo<FetchMode>(() => {
+    if (modeKind === "earliest") {
+      return { type: "earliest" };
+    }
     if (modeKind === "from_offset") {
-      return { type: "from_offset", partition: fromOffsetPartition, offset: fromOffset };
+      return { type: "from_offset", offset: fromOffset };
     }
     if (modeKind === "time_range") {
       const start = timeRange?.[0]?.valueOf() ?? Date.now() - 3600_000;
       const end = timeRange?.[1]?.valueOf() ?? Date.now();
       return { type: "time_range", start_ms: start, end_ms: end };
     }
-    return { type: "latest", count: latestCount };
-  }, [modeKind, latestCount, fromOffsetPartition, fromOffset, timeRange]);
+    return { type: "latest" };
+  }, [modeKind, fromOffset, timeRange]);
 
   const handleFetch = useCallback(async () => {
     if (!currentClusterId || !topic) {
@@ -139,7 +140,7 @@ export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }
     setLiveRunning(true);
     try {
       const ch = await api.startLiveConsume(
-        { cluster_id: currentClusterId, topic, partition, fetch_mode: { type: "latest", count: 0 }, limit: 0 },
+        { cluster_id: currentClusterId, topic, partition, fetch_mode: { type: "latest" }, limit: 0 },
         sessionId,
         (msg) => {
           setLiveMessages((prev) => {
@@ -284,26 +285,17 @@ export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }
                     value={modeKind}
                     onChange={setModeKind}
                     options={[
-                      { value: "latest", label: "Latest N" },
+                      { value: "latest", label: "Latest" },
+                      { value: "earliest", label: "Earliest" },
                       { value: "from_offset", label: "From Offset" },
                       { value: "time_range", label: "Time Range" },
                     ]}
                   />
                 </Form.Item>
-                {modeKind === "latest" && (
-                  <Form.Item label="N">
-                    <InputNumber min={1} max={1000} value={latestCount} onChange={(v) => setLatestCount(v ?? 50)} />
-                  </Form.Item>
-                )}
                 {modeKind === "from_offset" && (
-                  <>
-                    <Form.Item label="Partition">
-                      <InputNumber min={0} value={fromOffsetPartition} onChange={(v) => setFromOffsetPartition(v ?? 0)} />
-                    </Form.Item>
-                    <Form.Item label="Offset">
-                      <InputNumber min={0} value={fromOffset} onChange={(v) => setFromOffset(v ?? 0)} />
-                    </Form.Item>
-                  </>
+                  <Form.Item label="Offset">
+                    <InputNumber min={0} value={fromOffset} onChange={(v) => setFromOffset(v ?? 0)} />
+                  </Form.Item>
                 )}
                 {modeKind === "time_range" && (
                   <Form.Item label="Range">

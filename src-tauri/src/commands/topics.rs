@@ -253,8 +253,33 @@ pub async fn update_topic_config(
 
     let opts = AdminOptions::new().request_timeout(Some(timeout));
 
+    // rdkafka 0.36 only exposes the legacy (non-incremental) AlterConfigs, which
+    // REPLACES the topic's entire dynamic config set: any override absent from the
+    // request is reset to default. The frontend only sends the fields the user just
+    // edited, so we must first read back the existing dynamic-topic overrides and
+    // merge the edits on top, otherwise untouched overrides would be silently wiped.
+    let describe = bundle
+        .admin
+        .describe_configs(&[ResourceSpecifier::Topic(&topic)], &opts)
+        .await
+        .map_err(|e| format!("[KAFKA-DESCRIBE-CONFIGS] {e}"))?;
+
+    let mut merged: HashMap<String, String> = HashMap::new();
+    for r in describe {
+        let cr = r.map_err(|err| format!("[KAFKA-DESCRIBE-CONFIGS] {err}"))?;
+        for entry in &cr.entries {
+            if entry.source == ConfigSource::DynamicTopic {
+                if let Some(v) = &entry.value {
+                    merged.insert(entry.name.clone(), v.clone());
+                }
+            }
+        }
+    }
+    // User edits take precedence over the existing overrides.
+    merged.extend(configs);
+
     let mut alter = AlterConfig::new(ResourceSpecifier::Topic(&topic));
-    for (k, v) in &configs {
+    for (k, v) in &merged {
         alter = alter.set(k, v);
     }
     let results = bundle

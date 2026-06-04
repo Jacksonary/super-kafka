@@ -13,7 +13,7 @@ import {
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
-import type { Update } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useUpdateCheck } from "../../useUpdateCheck";
 import { theme } from "antd";
 import { Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
@@ -38,6 +38,9 @@ const NAV_ITEMS = [
 const SIDEBAR_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
 const SIDEBAR_COLLAPSED_KEY = "super-kafka:sidebar-collapsed";
+// Set when the user clicks "Later" on a downloaded update; on next launch the app
+// silently re-downloads and installs before showing the UI.
+const PENDING_UPDATE_KEY = "super-kafka:install-update-on-launch";
 
 const GITHUB_URL = "https://github.com/Jacksonary/super-kafka";
 const GITEE_URL = "https://gitee.com/weiguoliu/super-kafka";
@@ -55,7 +58,7 @@ export default function MainLayout() {
   const location = useLocation();
   const { clusters, currentClusterId, setCurrentClusterId, currentSummary, connecting, refreshCurrentSummary } = useClusterStore();
   const { token } = theme.useToken();
-  const { state: updateState, setState: setUpdateState, fallback, checking, recheck } = useUpdateCheck(__APP_VERSION__);
+  const { state: updateState, setState: setUpdateState, checking, recheck } = useUpdateCheck(__APP_VERSION__);
 
   const readyVersionRef = useRef<string>("");
   const pendingUpdateRef = useRef<Update | null>(null);
@@ -98,9 +101,14 @@ export default function MainLayout() {
             return;
           }
         }
+        try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
         void relaunch();
       },
-      onCancel: () => { modalOpenRef.current = false; },
+      onCancel: () => {
+        modalOpenRef.current = false;
+        // Defer the install to next launch instead of discarding the download.
+        try { localStorage.setItem(PENDING_UPDATE_KEY, "1"); } catch { /* ignore */ }
+      },
     });
   }
 
@@ -131,6 +139,48 @@ export default function MainLayout() {
       downloadingRef.current = false;
     }
   };
+
+  // On launch, if the user previously chose "Later", finish the deferred install
+  // now (silently) before they start working. The in-memory Update handle does not
+  // survive a restart, so we re-check to obtain a fresh one, then download+install.
+  const launchInstallRan = useRef(false);
+  useEffect(() => {
+    if (launchInstallRan.current) return;
+    launchInstallRan.current = true;
+    let pending = false;
+    try { pending = localStorage.getItem(PENDING_UPDATE_KEY) === "1"; } catch { /* ignore */ }
+    if (!pending) return;
+
+    void (async () => {
+      try {
+        const upd = await check();
+        if (!upd) {
+          // Already up to date (e.g. installed elsewhere) — clear and move on.
+          try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+          return;
+        }
+        setUpdateState({ status: "downloading", progress: 0 });
+        let total = 0;
+        let downloaded = 0;
+        await upd.download((evt) => {
+          if (evt.event === "Started" && evt.data.contentLength) {
+            total = evt.data.contentLength;
+          } else if (evt.event === "Progress") {
+            downloaded += evt.data.chunkLength;
+            if (total > 0) setUpdateState({ status: "downloading", progress: Math.round((downloaded / total) * 100) });
+          }
+        });
+        await upd.install();
+        try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+        void relaunch();
+      } catch (e) {
+        // Don't trap the user in a failing upgrade loop — clear the flag and
+        // fall back to the normal in-app update prompt.
+        try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+        setUpdateState({ status: "error", message: String(e) });
+      }
+    })();
+  }, [setUpdateState]);
 
   const selectedKey = useMemo(() => {
     const match = NAV_ITEMS.find((item) => location.pathname.startsWith(item.key));
@@ -370,14 +420,6 @@ export default function MainLayout() {
                 <Tooltip title={updateState.message}>
                   <a href="#" onClick={(e) => { e.preventDefault(); recheck(); }} style={{ cursor: "pointer", textDecoration: "none" }}>
                     <Text style={{ fontSize: 11, color: token.colorErrorText }}>Update failed — retry</Text>
-                  </a>
-                </Tooltip>
-              ) : fallback ? (
-                <Tooltip title={`${fallback.latestVersion} available — click to open release`}>
-                  <a href={fallback.releaseUrl} onClick={(e) => { e.preventDefault(); openUrl(fallback.releaseUrl); }} style={{ cursor: "pointer", textDecoration: "none" }}>
-                    <Text style={{ fontSize: 11, color: token.colorWarningText }} ellipsis>
-                      v{__APP_VERSION__} → {fallback.latestVersion}
-                    </Text>
                   </a>
                 </Tooltip>
               ) : (

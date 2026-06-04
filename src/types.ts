@@ -118,8 +118,9 @@ export interface FetchMessagesRequest {
 }
 
 export type FetchMode =
-  | { type: "latest"; count: number }
-  | { type: "from_offset"; partition: number; offset: number }
+  | { type: "earliest" }
+  | { type: "latest" }
+  | { type: "from_offset"; offset: number }
   | { type: "time_range"; start_ms: number; end_ms: number };
 
 export interface FetchMessagesResponse {

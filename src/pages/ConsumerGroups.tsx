@@ -46,6 +46,9 @@ export default function ConsumerGroups() {
     setLoading(true);
     try {
       const list = await api.listConsumerGroups(currentClusterId);
+      // Backend returns groups in broker fetch-list order, which is not stable
+      // across refreshes; sort by group_id for a predictable order.
+      list.sort((a, b) => a.group_id.localeCompare(b.group_id));
       setGroups(list);
       setDetails({});
     } catch (e) {

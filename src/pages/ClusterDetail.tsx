@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Descriptions,
+  Popconfirm,
   Space,
   Spin,
   Table,
@@ -12,12 +13,13 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useNavigate, useParams } from "react-router-dom";
 import dayjs from "dayjs";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
+import ClusterFormModal from "../components/Cluster/ClusterFormModal";
 import type { BrokerInfo, ClusterSummary } from "../types";
 
 const { Text } = Typography;
@@ -41,7 +43,7 @@ export default function ClusterDetail() {
   const { clusterId: rawId } = useParams<{ clusterId: string }>();
   const clusterId = rawId ? decodeURIComponent(rawId) : "";
   const navigate = useNavigate();
-  const { clusters } = useClusterStore();
+  const { clusters, refreshClusters } = useClusterStore();
   const { message } = AntdApp.useApp();
 
   const config = clusters.find((c) => c.id === clusterId) ?? null;
@@ -50,6 +52,18 @@ export default function ClusterDetail() {
   const [brokers, setBrokers] = useState<BrokerInfo[]>([]);
   const [brokerError, setBrokerError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  async function handleDelete() {
+    try {
+      await api.deleteCluster(clusterId);
+      message.success("Cluster deleted");
+      await refreshClusters();
+      navigate("/cluster");
+    } catch (e) {
+      if (e instanceof Error) message.error(e.message);
+    }
+  }
 
   const load = useCallback(async () => {
     if (!clusterId) return;
@@ -121,9 +135,24 @@ export default function ClusterDetail() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/cluster")}>
           Back
         </Button>
-        <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
-          Refresh
-        </Button>
+        <Space size={8}>
+          <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
+            Edit
+          </Button>
+          <Popconfirm
+            title="Delete this cluster?"
+            description="The credential in keychain will also be removed."
+            onConfirm={handleDelete}
+            okButtonProps={{ danger: true }}
+          >
+            <Button danger icon={<DeleteOutlined />}>
+              Delete
+            </Button>
+          </Popconfirm>
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
+            Refresh
+          </Button>
+        </Space>
       </Space>
 
       <Spin spinning={loading}>
@@ -207,6 +236,16 @@ export default function ClusterDetail() {
           </Descriptions>
         </Card>
       </Spin>
+
+      <ClusterFormModal
+        open={editOpen}
+        initialConfig={config}
+        onClose={() => setEditOpen(false)}
+        onSaved={async () => {
+          await refreshClusters();
+          void load();
+        }}
+      />
     </Space>
   );
 }

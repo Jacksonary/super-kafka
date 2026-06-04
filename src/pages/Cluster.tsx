@@ -58,14 +58,21 @@ export default function Cluster() {
       {clusters.length === 0 ? (
         <Empty description="No clusters configured. Add one to get started." />
       ) : (
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gap: 12,
+          }}
+        >
           {clusters.map((c) => {
             const active = c.id === currentClusterId;
             return (
               <Card
                 key={c.id}
                 hoverable
-                styles={{ body: { padding: 16, cursor: "pointer" } }}
+                size="small"
+                styles={{ body: { padding: 12, cursor: "pointer" } }}
                 style={{
                   borderColor: active ? token.colorSuccess : token.colorBorder,
                   boxShadow: active ? `0 0 0 1px ${token.colorSuccess}` : undefined,
@@ -78,46 +85,42 @@ export default function Cluster() {
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    marginBottom: 8,
+                    gap: 8,
+                    marginBottom: 6,
                   }}
                 >
-                  <Space size={8}>
-                    <Text strong>{c.name}</Text>
-                    {active && <Tag color="success">Active</Tag>}
+                  <Space size={6} style={{ minWidth: 0 }}>
+                    <Text strong ellipsis>{c.name}</Text>
+                    {active && <Tag color="success" style={{ marginInlineEnd: 0 }}>Active</Tag>}
                   </Space>
-                  <Space size={4} onClick={(e) => e.stopPropagation()}>
-                    <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(c)}>
-                      Edit
-                    </Button>
+                  <Space size={2} onClick={(e) => e.stopPropagation()}>
+                    <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(c)} />
                     <Popconfirm
                       title="Delete this cluster?"
                       description="The credential in keychain will also be removed."
                       onConfirm={() => handleDelete(c.id)}
                       okButtonProps={{ danger: true }}
                     >
-                      <Button size="small" danger icon={<DeleteOutlined />} />
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />} />
                     </Popconfirm>
                   </Space>
                 </div>
 
-                {/* row 2: bootstrap servers */}
-                <div style={{ marginBottom: 6 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Bootstrap
-                  </Text>
-                  <Text code ellipsis style={{ fontSize: 12, display: "block" }}>
-                    {c.bootstrap_servers}
-                  </Text>
-                </div>
+                {/* row 2: address */}
+                <Text
+                  code
+                  ellipsis={{ tooltip: c.bootstrap_servers }}
+                  style={{ fontSize: 12, display: "block", marginBottom: 6 }}
+                >
+                  {c.bootstrap_servers}
+                </Text>
 
                 {/* row 3: security protocol */}
-                <div>
-                  <Tag>{c.security_protocol}</Tag>
-                </div>
+                <Tag style={{ marginInlineEnd: 0 }}>{c.security_protocol}</Tag>
               </Card>
             );
           })}
-        </Space>
+        </div>
       )}
 
       <ClusterFormModal

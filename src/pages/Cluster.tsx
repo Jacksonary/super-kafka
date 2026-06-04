@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -6,11 +6,11 @@ import {
   Popconfirm,
   Space,
   Tag,
+  Tooltip,
   Typography,
-  theme,
   App as AntdApp,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleFilled } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import type { ClusterConfig } from "../types";
@@ -21,11 +21,17 @@ const { Text } = Typography;
 
 export default function Cluster() {
   const { message } = AntdApp.useApp();
-  const { token } = theme.useToken();
   const navigate = useNavigate();
-  const { clusters, refreshClusters, currentClusterId } = useClusterStore();
+  const { clusters, refreshClusters, currentClusterId, setCurrentClusterId } = useClusterStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ClusterConfig | null>(null);
+
+  // HashMap-backed list_configs returns an unstable order; sort by creation time
+  // so cards keep a stable, predictable order across restarts and edits.
+  const sortedClusters = useMemo(
+    () => [...clusters].sort((a, b) => a.created_at - b.created_at),
+    [clusters],
+  );
 
   async function handleDelete(id: string) {
     try {
@@ -65,7 +71,7 @@ export default function Cluster() {
             gap: 12,
           }}
         >
-          {clusters.map((c) => {
+          {sortedClusters.map((c) => {
             const active = c.id === currentClusterId;
             return (
               <Card
@@ -73,10 +79,6 @@ export default function Cluster() {
                 hoverable
                 size="small"
                 styles={{ body: { padding: 12, cursor: "pointer" } }}
-                style={{
-                  borderColor: active ? token.colorSuccess : token.colorBorder,
-                  boxShadow: active ? `0 0 0 1px ${token.colorSuccess}` : undefined,
-                }}
                 onClick={() => navigate(`/cluster/${encodeURIComponent(c.id)}`)}
               >
                 {/* row 1: name + actions */}
@@ -89,11 +91,25 @@ export default function Cluster() {
                     marginBottom: 6,
                   }}
                 >
-                  <Space size={6} style={{ minWidth: 0 }}>
-                    <Text strong ellipsis>{c.name}</Text>
-                    {active && <Tag color="success" style={{ marginInlineEnd: 0 }}>Active</Tag>}
-                  </Space>
+                  <Text strong ellipsis style={{ minWidth: 0, flex: 1 }}>
+                    {c.name}
+                  </Text>
                   <Space size={2} onClick={(e) => e.stopPropagation()}>
+                    {active ? (
+                      <Tag icon={<CheckCircleFilled />} color="success" style={{ marginInlineEnd: 0 }}>
+                        Active
+                      </Tag>
+                    ) : (
+                      <Tooltip title="Switch to this cluster">
+                        <Tag
+                          color="default"
+                          style={{ marginInlineEnd: 0, cursor: "pointer" }}
+                          onClick={() => setCurrentClusterId(c.id)}
+                        >
+                          Set active
+                        </Tag>
+                      </Tooltip>
+                    )}
                     <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(c)} />
                     <Popconfirm
                       title="Delete this cluster?"

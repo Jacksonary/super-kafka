@@ -185,7 +185,7 @@ export default function MainLayout() {
 
   const selectedKey = useMemo(() => {
     const match = NAV_ITEMS.find((item) => location.pathname.startsWith(item.key));
-    return match?.key ?? "/topics";
+    return match?.key ?? "/cluster";
   }, [location.pathname]);
 
   // ── Status color ──
@@ -501,7 +501,7 @@ export default function MainLayout() {
         )}
         <Content style={{ padding: 24, background: "#0d1117", overflow: "auto" }}>
           <Routes>
-            <Route index element={<Navigate to="/topics" replace />} />
+            <Route index element={<Navigate to="/cluster" replace />} />
             <Route path="/cluster" element={<Cluster />} />
             <Route path="/cluster/:clusterId" element={<ClusterDetail />} />
             <Route path="/topics" element={<Topics />} />
@@ -509,7 +509,7 @@ export default function MainLayout() {
             <Route path="/topics/:topicName/messages" element={<MessageBrowser />} />
             <Route path="/groups" element={<ConsumerGroups />} />
             <Route path="/producer" element={<MessageProducer />} />
-            <Route path="*" element={<Navigate to="/topics" replace />} />
+            <Route path="*" element={<Navigate to="/cluster" replace />} />
           </Routes>
         </Content>
       </Layout>

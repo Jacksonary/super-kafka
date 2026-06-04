@@ -157,7 +157,7 @@ export default function Topics() {
   ];
 
   if (!currentClusterId) {
-    return <Alert type="info" showIcon message="No cluster selected. Configure one in Settings." />;
+    return <Alert type="info" showIcon message="No cluster selected. Configure one in the Cluster page." />;
   }
 
   return (

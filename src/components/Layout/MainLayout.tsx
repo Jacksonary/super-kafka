@@ -4,7 +4,7 @@ import { Alert, Button, Layout, Menu, Modal, Progress, Select, Tooltip, Typograp
 import {
   UnorderedListOutlined,
   TeamOutlined,
-  SettingOutlined,
+  ClusterOutlined,
   SendOutlined,
   GithubOutlined,
   ReloadOutlined,
@@ -23,16 +23,17 @@ import TopicDetail from "../../pages/TopicDetail";
 import MessageBrowser from "../../pages/MessageBrowser";
 import MessageProducer from "../../pages/MessageProducer";
 import ConsumerGroups from "../../pages/ConsumerGroups";
-import Settings from "../../pages/Settings";
+import Cluster from "../../pages/Cluster";
+import ClusterDetail from "../../pages/ClusterDetail";
 
 const { Sider, Content, Header } = Layout;
 const { Text } = Typography;
 
 const NAV_ITEMS = [
+  { key: "/cluster", label: "Cluster", icon: <ClusterOutlined /> },
   { key: "/topics", label: "Topics", icon: <UnorderedListOutlined /> },
   { key: "/groups", label: "Consumer Groups", icon: <TeamOutlined /> },
   { key: "/producer", label: "Producer", icon: <SendOutlined /> },
-  { key: "/settings", label: "Settings", icon: <SettingOutlined /> },
 ];
 
 const SIDEBAR_WIDTH = 240;
@@ -283,7 +284,7 @@ export default function MainLayout() {
               style={{ width: "100%" }}
               options={clusters.map((c) => ({ value: c.id, label: c.name }))}
               notFoundContent={
-                <span style={{ color: "#8c8c8c" }}>No clusters configured. Add one in Settings.</span>
+                <span style={{ color: "#8c8c8c" }}>No clusters configured. Add one in the Cluster page.</span>
               }
               labelRender={({ label }) => (
                 <Text
@@ -501,12 +502,13 @@ export default function MainLayout() {
         <Content style={{ padding: 24, background: "#0d1117", overflow: "auto" }}>
           <Routes>
             <Route index element={<Navigate to="/topics" replace />} />
+            <Route path="/cluster" element={<Cluster />} />
+            <Route path="/cluster/:clusterId" element={<ClusterDetail />} />
             <Route path="/topics" element={<Topics />} />
             <Route path="/topics/:topicName" element={<TopicDetail />} />
             <Route path="/topics/:topicName/messages" element={<MessageBrowser />} />
             <Route path="/groups" element={<ConsumerGroups />} />
             <Route path="/producer" element={<MessageProducer />} />
-            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/topics" replace />} />
           </Routes>
         </Content>

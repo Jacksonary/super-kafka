@@ -14,6 +14,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   App as AntdApp,
 } from "antd";
@@ -23,7 +24,7 @@ import type { Dayjs } from "dayjs";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
 import type { FetchMode, KafkaMessage, TopicSummary } from "../types";
-import { formatTimestamp, truncate } from "../utils/format";
+import { formatBytes, formatTimestamp, truncate } from "../utils/format";
 import MessageDetailDrawer from "../components/Message/MessageDetailDrawer";
 import { exportMessages } from "../utils/export";
 
@@ -215,6 +216,19 @@ export default function MessageBrowser({
       width: 180,
       render: (k: string | null) =>
         k ? <Text code style={{ fontSize: 12 }}>{truncate(k, 30)}</Text> : <Text type="secondary">null</Text>,
+    },
+    {
+      title: "Size",
+      key: "size",
+      width: 90,
+      align: "right",
+      render: (_, m) => (
+        <Tooltip title="业务可见的 value 字节数，不含协议开销 / 压缩前">
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {formatBytes(m.value_raw.length)}
+          </Text>
+        </Tooltip>
+      ),
     },
     {
       title: "Value",

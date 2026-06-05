@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
 import type { CreateTopicRequest, TopicSummary } from "../types";
+import DurationInput from "../components/Common/DurationInput";
 
 
 
@@ -34,7 +35,7 @@ export default function Topics() {
   const [search, setSearch] = useState<string>("");
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [creating, setCreating] = useState<boolean>(false);
-  const [form] = Form.useForm<CreateTopicRequest & { retention_days: number | null }>();
+  const [form] = Form.useForm<CreateTopicRequest & { retention_ms: number | null }>();
 
   const load = useCallback(async () => {
     if (!currentClusterId) return;
@@ -65,8 +66,8 @@ export default function Topics() {
       const values = await form.validateFields();
       setCreating(true);
       const configs: Record<string, string> = {};
-      if (values.retention_days) {
-        configs["retention.ms"] = String(values.retention_days * 86400 * 1000);
+      if (values.retention_ms != null) {
+        configs["retention.ms"] = String(values.retention_ms);
       }
       await api.createTopic(currentClusterId, {
         name: values.name,
@@ -229,11 +230,11 @@ export default function Topics() {
             <InputNumber min={1} max={10} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item
-            label="Retention (days)"
-            name="retention_days"
-            extra="Leave empty to use the cluster default"
+            label="保留时间"
+            name="retention_ms"
+            extra="留空则使用集群默认；勾选 Forever 表示永久保留 (-1)"
           >
-            <InputNumber min={1} max={36500} style={{ width: "100%" }} placeholder="cluster default" />
+            <DurationInput defaultUnit="d" />
           </Form.Item>
         </Form>
       </Modal>

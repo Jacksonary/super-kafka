@@ -1,26 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Breadcrumb,
   Button,
   Card,
+  Checkbox,
   Descriptions,
   Input,
+  InputNumber,
+  Modal,
   Space,
   Spin,
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   App as AntdApp,
 } from "antd";
-import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
 import type { PartitionInfo, TopicConfig, TopicDetail as TopicDetailType } from "../types";
-import { formatNumber } from "../utils/format";
+import { formatDurationMs, formatNumber } from "../utils/format";
+import DurationInput from "../components/Common/DurationInput";
 import MessageBrowser from "./MessageBrowser";
 import TopicConsumerGroups from "../components/Topic/TopicConsumerGroups";
 
@@ -37,6 +42,17 @@ export default function TopicDetail() {
   const [editingConfig, setEditingConfig] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState("partitions");
   const [selectedPartition, setSelectedPartition] = useState<number | null>(null);
+  const [partitionsModalOpen, setPartitionsModalOpen] = useState(false);
+  const [retentionModalOpen, setRetentionModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const currentPartitionCount = detail?.partitions.length ?? 0;
+  const currentRetentionMs = useMemo(() => {
+    const raw = detail?.configs.find((c) => c.name === "retention.ms")?.value;
+    if (raw == null || raw === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }, [detail]);
 
   const load = useCallback(async () => {
     if (!currentClusterId || !topicName) return;
@@ -122,12 +138,24 @@ export default function TopicDetail() {
           return <Text type="secondary">{c.value ?? "-"}</Text>;
         }
         const current = editingConfig[c.name] ?? c.value ?? "";
+        const isDuration = c.name === "retention.ms";
+        const ms = isDuration && current !== "" ? Number(current) : null;
+        const showHint = isDuration && ms != null && Number.isFinite(ms);
         return (
-          <Input
-            value={current}
-            onChange={(e) => setEditingConfig((p) => ({ ...p, [c.name]: e.target.value }))}
-            size="small"
-          />
+          <Space direction="vertical" size={2} style={{ width: "100%" }}>
+            <Input
+              value={current}
+              onChange={(e) => setEditingConfig((p) => ({ ...p, [c.name]: e.target.value }))}
+              size="small"
+            />
+            {showHint && (
+              <Tooltip title={`retention.ms = ${ms}`}>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  ≈ {formatDurationMs(ms)}
+                </Text>
+              </Tooltip>
+            )}
+          </Space>
         );
       },
     },
@@ -186,10 +214,35 @@ export default function TopicDetail() {
               return (
                 <Descriptions column={3} size="small">
                   <Descriptions.Item label="Partitions">
-                    {detail.partitions.length}
+                    <Space size={4}>
+                      {detail.partitions.length}
+                      <Tooltip title="增加分区数">
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<PlusOutlined />}
+                          onClick={() => setPartitionsModalOpen(true)}
+                        />
+                      </Tooltip>
+                    </Space>
                   </Descriptions.Item>
                   <Descriptions.Item label="Replication Factor">
                     {detail.partitions[0]?.replicas.length ?? "-"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Retention">
+                    <Space size={4}>
+                      <Tooltip title={currentRetentionMs == null ? undefined : `retention.ms = ${currentRetentionMs}`}>
+                        <span>{formatDurationMs(currentRetentionMs)}</span>
+                      </Tooltip>
+                      <Tooltip title="修改保留时间">
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<EditOutlined />}
+                          onClick={() => setRetentionModalOpen(true)}
+                        />
+                      </Tooltip>
+                    </Space>
                   </Descriptions.Item>
                   <Descriptions.Item label="Total Messages">
                     {formatNumber(
@@ -299,6 +352,183 @@ export default function TopicDetail() {
           ]}
         />
       </Space>
+
+      <PartitionsEditModal
+        open={partitionsModalOpen}
+        currentCount={currentPartitionCount}
+        submitting={submitting}
+        onClose={() => setPartitionsModalOpen(false)}
+        onSubmit={async (newCount) => {
+          if (!currentClusterId) return;
+          setSubmitting(true);
+          try {
+            await api.addPartitions(currentClusterId, topicName, newCount);
+            message.success(`分区数已增加到 ${newCount}`);
+            setPartitionsModalOpen(false);
+            await load();
+          } catch (e) {
+            message.error(String(e));
+          } finally {
+            setSubmitting(false);
+          }
+        }}
+      />
+
+      <RetentionEditModal
+        open={retentionModalOpen}
+        currentMs={currentRetentionMs}
+        submitting={submitting}
+        onClose={() => setRetentionModalOpen(false)}
+        onSubmit={async (newMs) => {
+          if (!currentClusterId) return;
+          setSubmitting(true);
+          try {
+            await api.updateTopicConfig(currentClusterId, topicName, {
+              "retention.ms": String(newMs),
+            });
+            message.success("保留时间已更新");
+            setRetentionModalOpen(false);
+            await load();
+          } catch (e) {
+            message.error(String(e));
+          } finally {
+            setSubmitting(false);
+          }
+        }}
+      />
     </Spin>
+  );
+}
+
+interface PartitionsEditModalProps {
+  open: boolean;
+  currentCount: number;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (newCount: number) => void;
+}
+
+function PartitionsEditModal({
+  open,
+  currentCount,
+  submitting,
+  onClose,
+  onSubmit,
+}: PartitionsEditModalProps) {
+  const minCount = currentCount + 1;
+  const [newCount, setNewCount] = useState<number>(minCount);
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setNewCount(minCount);
+      setAcknowledged(false);
+    }
+  }, [open, minCount]);
+
+  return (
+    <Modal
+      title="增加分区数"
+      open={open}
+      onCancel={onClose}
+      onOk={() => onSubmit(newCount)}
+      okText="确认增加"
+      cancelText="取消"
+      confirmLoading={submitting}
+      okButtonProps={{ disabled: !acknowledged || newCount < minCount }}
+    >
+      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Descriptions column={1} size="small">
+          <Descriptions.Item label="当前分区数">{currentCount}</Descriptions.Item>
+        </Descriptions>
+        <div>
+          <Typography.Text>新分区数</Typography.Text>
+          <InputNumber
+            min={minCount}
+            step={1}
+            precision={0}
+            style={{ width: "100%", marginTop: 4 }}
+            value={newCount}
+            onChange={(v) => {
+              if (typeof v === "number" && Number.isFinite(v)) {
+                setNewCount(Math.floor(v));
+              }
+            }}
+          />
+        </div>
+        <Alert
+          type="warning"
+          showIcon
+          message="分区数只能增加，且增加后会改变 key 的分区分布"
+          description="新增分区后，原本同一 key 落在同一分区的消息可能会被分散到新分区。如果业务依赖 key 有序性，请评估影响后再操作。"
+        />
+        <Checkbox
+          checked={acknowledged}
+          onChange={(e) => setAcknowledged(e.target.checked)}
+        >
+          我知道这会改变 key 分布
+        </Checkbox>
+      </Space>
+    </Modal>
+  );
+}
+
+interface RetentionEditModalProps {
+  open: boolean;
+  currentMs: number | null;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (newMs: number) => void;
+}
+
+function RetentionEditModal({
+  open,
+  currentMs,
+  submitting,
+  onClose,
+  onSubmit,
+}: RetentionEditModalProps) {
+  // null = 用户未填（保存按钮禁用，提交时跳过后端调用）
+  const [draftMs, setDraftMs] = useState<number | null>(currentMs);
+
+  useEffect(() => {
+    if (open) {
+      setDraftMs(currentMs);
+    }
+  }, [open, currentMs]);
+
+  const canSubmit = draftMs != null && draftMs !== currentMs;
+
+  return (
+    <Modal
+      title="修改保留时间"
+      open={open}
+      onCancel={onClose}
+      onOk={() => {
+        if (draftMs == null) return;
+        onSubmit(draftMs);
+      }}
+      okText="保存"
+      cancelText="取消"
+      confirmLoading={submitting}
+      okButtonProps={{ disabled: !canSubmit }}
+    >
+      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Descriptions column={1} size="small">
+          <Descriptions.Item label="当前保留时间">
+            {formatDurationMs(currentMs)}
+            {currentMs != null && (
+              <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+                (retention.ms = {currentMs})
+              </Typography.Text>
+            )}
+          </Descriptions.Item>
+        </Descriptions>
+        <DurationInput value={draftMs} onChange={setDraftMs} />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          注意：留空或与当前值一致不会触发更新；保留时间还受 retention.bytes 限制；修改后已有消息不会立即清理（log cleaner 异步执行）。
+        </Typography.Text>
+      </Space>
+    </Modal>
   );
 }

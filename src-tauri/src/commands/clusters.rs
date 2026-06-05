@@ -71,27 +71,32 @@ async fn fetch_produce_api_max_version(addr: &str, timeout: Duration) -> Option<
     None
 }
 
-/// Map Produce API max version to a Kafka version string.
-/// Reference: https://kafka.apache.org/protocol#api_versions
+/// Map Produce API max version to a Kafka version range.
 ///
-/// The upper bound arm covers future Kafka releases whose Produce API version
-/// is not yet in this table. When a new Kafka version ships, add a new arm
-/// above it with the exact version string.
+/// NOTE: Produce API max_version is NOT a 1:1 indicator of Kafka release —
+/// multiple consecutive releases share the same max_version (e.g. 2.4–2.7
+/// all expose Produce v8). Do not collapse these arms back to single versions;
+/// a single ApiVersions probe simply cannot distinguish them.
+///
+/// Source of truth: `clients/src/main/resources/common/message/ProduceRequest.json`
+/// in each Apache Kafka release tag — the `validVersions` field.
 fn produce_version_to_kafka(max_version: i16) -> &'static str {
     match max_version {
-        13.. => ">3.3", // update when new Kafka releases raise Produce API version
-        12 => "3.3",
-        11 => "3.2",
-        10 => "3.1",
-        9  => "2.7",
-        8  => "2.4",
-        7  => "2.1",
-        6  => "2.0",
-        5  => "1.0",
-        4  => "0.11",
-        3  => "0.10",
-        2  => "0.9",
-        _  => "0.8",
+        14.. => ">=4.2",         // bump when a new Kafka release raises Produce
+        13   => "4.1",
+        12   => "4.0",
+        11   => "3.8 ~ 3.9",
+        10   => "3.7",
+        9    => "2.8 ~ 3.6",
+        8    => "2.4 ~ 2.7",
+        7    => "2.1 ~ 2.3",
+        6    => "2.0",
+        5    => "1.0 ~ 1.1",
+        4    => "0.11",
+        3    => "0.10.1 ~ 0.10.2",
+        2    => "0.10.0",
+        1    => "0.9",
+        _    => "<=0.8",
     }
 }
 

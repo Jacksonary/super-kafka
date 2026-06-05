@@ -161,7 +161,7 @@ export default function ClusterDetail() {
             <Descriptions.Item label="Status">
               <StatusTag status={summary?.status} />
             </Descriptions.Item>
-            <Descriptions.Item label="Kafka Version">
+            <Descriptions.Item label="Kafka 版本（区间）">
               {summary?.kafka_version ?? "-"}
             </Descriptions.Item>
             <Descriptions.Item label="Broker Count">

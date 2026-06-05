@@ -113,7 +113,11 @@ export default function MessageProducer() {
   }
 
   return (
-    <Card title="Produce Message" style={{ maxWidth: 900 }}>
+    <Card
+      title="Produce Message"
+      style={{ maxWidth: 900, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+      styles={{ body: { flex: 1, minHeight: 0, overflow: "auto" } }}
+    >
       <Form layout="vertical">
         <Space size={12} style={{ width: "100%" }}>
           <Form.Item label="Topic" style={{ flex: 1, minWidth: 280 }}>

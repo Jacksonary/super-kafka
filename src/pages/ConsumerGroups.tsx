@@ -94,11 +94,7 @@ export default function ConsumerGroups() {
       title: "Group ID",
       dataIndex: "group_id",
       key: "group_id",
-      render: (g: string) => (
-        <Text code style={{ fontSize: 12 }}>
-          {g}
-        </Text>
-      ),
+      render: (g: string) => <Text code>{g}</Text>,
     },
     {
       title: "State",
@@ -132,18 +128,14 @@ export default function ConsumerGroups() {
   return (
     <Card
       title="Consumer Groups"
+      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+      styles={{ body: { flex: 1, minHeight: 0, overflow: "hidden", padding: 0 } }}
       extra={
         <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
           Refresh
         </Button>
       }
     >
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="Consumption lag & offset reset are now per-topic — open a topic's detail → Consumer Groups tab."
-      />
       <Table<ConsumerGroupSummary>
         rowKey="group_id"
         size="middle"
@@ -151,6 +143,7 @@ export default function ConsumerGroups() {
         dataSource={groups}
         loading={loading}
         pagination={false}
+        scroll={{ y: "max(200px, calc(100vh - 200px))" }}
         expandable={{
           onExpand: (expanded, record) => {
             if (expanded) void loadDetail(record.group_id);

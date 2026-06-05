@@ -46,11 +46,8 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
     partition: number;
   } | null>(null);
 
-  const loadGroups = useCallback(async () => {
+  const refreshGroups = useCallback(async () => {
     setLoadingGroups(true);
-    setExpandedKeys([]);
-    setPartitions({});
-    setLoadingParts({});
     try {
       setGroups(await api.listTopicConsumerGroups(clusterId, topic));
     } catch (e) {
@@ -59,6 +56,13 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
       setLoadingGroups(false);
     }
   }, [clusterId, topic, message]);
+
+  const loadGroups = useCallback(async () => {
+    setExpandedKeys([]);
+    setPartitions({});
+    setLoadingParts({});
+    await refreshGroups();
+  }, [refreshGroups]);
 
   useEffect(() => {
     void loadGroups();
@@ -107,6 +111,26 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
         <Text type={v > 10000 ? "danger" : v > 1000 ? "warning" : undefined}>
           {formatNumber(v)}
         </Text>
+      ),
+    },
+    {
+      title: "",
+      key: "action",
+      width: 60,
+      align: "center",
+      render: (_: unknown, g: TopicConsumerGroup) => (
+        <Tooltip title="Refresh this group">
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            loading={loadingParts[g.group_id] ?? false}
+            onClick={(e) => {
+              e.stopPropagation();
+              void refreshGroups();
+              void loadPartitions(g.group_id);
+            }}
+          />
+        </Tooltip>
       ),
     },
   ];
@@ -249,7 +273,7 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
           const gid = resetTarget?.group.group_id;
           setResetTarget(null);
           if (gid) void loadPartitions(gid);
-          void loadGroups();
+          void refreshGroups();
         }}
       />
     </Card>

@@ -10,11 +10,14 @@ import {
   ReloadOutlined,
   LeftOutlined,
   RightOutlined,
+  SettingOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useUpdateCheck } from "../../useUpdateCheck";
+import { useSettings } from "../../store/settingsStore";
 import { theme } from "antd";
 import { Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { useClusterStore } from "../../store/clusterStore";
@@ -25,6 +28,7 @@ import MessageProducer from "../../pages/MessageProducer";
 import ConsumerGroups from "../../pages/ConsumerGroups";
 import Cluster from "../../pages/Cluster";
 import ClusterDetail from "../../pages/ClusterDetail";
+import Settings from "../../pages/Settings";
 
 const { Sider, Content, Header } = Layout;
 const { Text } = Typography;
@@ -34,6 +38,7 @@ const NAV_ITEMS = [
   { key: "/topics", label: "Topics", icon: <UnorderedListOutlined /> },
   { key: "/groups", label: "Consumer Groups", icon: <TeamOutlined /> },
   { key: "/producer", label: "Producer", icon: <SendOutlined /> },
+  { key: "/settings", label: "Settings", icon: <SettingOutlined /> },
 ];
 
 const SIDEBAR_WIDTH = 240;
@@ -59,7 +64,10 @@ export default function MainLayout() {
   const location = useLocation();
   const { clusters, currentClusterId, setCurrentClusterId, currentSummary, connecting, refreshCurrentSummary } = useClusterStore();
   const { token } = theme.useToken();
-  const { state: updateState, setState: setUpdateState, checking, recheck } = useUpdateCheck(__APP_VERSION__);
+  const { config: appConfig } = useSettings();
+  const isDark = appConfig.theme !== "light";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const { state: updateState, setState: setUpdateState, checking, recheck } = useUpdateCheck(__APP_VERSION__, appConfig.check_updates_on_startup);
 
   const readyVersionRef = useRef<string>("");
   const pendingUpdateRef = useRef<Update | null>(null);
@@ -206,7 +214,7 @@ export default function MainLayout() {
         style={{
           height: "100vh",
           overflow: "hidden",
-          borderRight: "1px solid #1f242c",
+          borderRight: `1px solid ${token.colorBorder}`,
           flexShrink: 0,
         }}
       >
@@ -218,7 +226,7 @@ export default function MainLayout() {
             alignItems: "center",
             justifyContent: collapsed ? "center" : "space-between",
             padding: collapsed ? 0 : "0 12px 0 16px",
-            borderBottom: "1px solid #1f242c",
+            borderBottom: `1px solid ${token.colorBorder}`,
             flexShrink: 0,
           }}
         >
@@ -230,14 +238,14 @@ export default function MainLayout() {
                 borderRadius: 8,
                 overflow: "hidden",
                 flexShrink: 0,
-                border: "1.5px solid rgba(0,212,255,0.5)",
-                boxShadow: "0 0 8px rgba(0,212,255,0.25)",
+                border: `1.5px solid ${token.colorPrimary}80`,
+                boxShadow: isDark ? `0 0 8px ${token.colorPrimary}40` : "none",
               }}
             >
               <img src={logoUrl} alt="logo" style={{ width: 32, height: 32, display: "block" }} />
             </div>
             {!collapsed && (
-              <Text strong style={{ color: "#00d4ff", fontSize: 16, whiteSpace: "nowrap" }}>
+              <Text strong style={{ color: token.colorPrimary, fontSize: 16, whiteSpace: "nowrap" }}>
                 Super Kafka
               </Text>
             )}
@@ -261,7 +269,7 @@ export default function MainLayout() {
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = token.colorTextSecondary;
-                  e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                  e.currentTarget.style.background = hoverBg;
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.color = token.colorTextQuaternary;
@@ -276,7 +284,7 @@ export default function MainLayout() {
 
         {/* ── Cluster selector ── */}
         {!collapsed && (
-          <div style={{ padding: 12, borderBottom: "1px solid #1f242c", flexShrink: 0 }}>
+          <div style={{ padding: 12, borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
             <Select
               value={currentClusterId ?? undefined}
               onChange={(v) => { setCurrentClusterId(v); navigate(selectedKey); }}
@@ -284,8 +292,30 @@ export default function MainLayout() {
               style={{ width: "100%" }}
               options={clusters.map((c) => ({ value: c.id, label: c.name }))}
               notFoundContent={
-                <span style={{ color: "#8c8c8c" }}>No clusters configured. Add one in the Cluster page.</span>
+                <span style={{ color: token.colorTextTertiary }}>No clusters configured.</span>
               }
+              dropdownRender={(menu) => (
+                <>
+                  {menu}
+                  <div
+                    style={{
+                      borderTop: `1px solid ${token.colorBorderSecondary}`,
+                      padding: "6px 8px",
+                    }}
+                  >
+                    <Button
+                      type="link"
+                      size="small"
+                      block
+                      icon={<PlusOutlined />}
+                      style={{ textAlign: "left", paddingLeft: 4 }}
+                      onClick={() => navigate("/cluster")}
+                    >
+                      Add Cluster
+                    </Button>
+                  </div>
+                </>
+              )}
               labelRender={({ label }) => (
                 <Text
                   style={{
@@ -341,7 +371,7 @@ export default function MainLayout() {
                 justifyContent: "center",
                 cursor: "pointer",
                 color: token.colorTextQuaternary,
-                borderBottom: "1px solid #1f242c",
+                borderBottom: `1px solid ${token.colorBorder}`,
                 transition: "color 0.15s, background 0.15s",
                 flexShrink: 0,
               }}
@@ -373,7 +403,7 @@ export default function MainLayout() {
         {/* ── Navigation ── */}
         <Menu
           mode="inline"
-          theme="dark"
+          theme={isDark ? "dark" : "light"}
           selectedKeys={[selectedKey]}
           inlineCollapsed={collapsed}
           onClick={(e) => navigate(e.key)}
@@ -385,7 +415,7 @@ export default function MainLayout() {
         <div
           style={{
             padding: collapsed ? "8px 0" : "8px 12px",
-            borderTop: "1px solid #1f242c",
+            borderTop: `1px solid ${token.colorBorder}`,
             display: "flex",
             alignItems: "center",
             justifyContent: collapsed ? "center" : "space-between",
@@ -473,8 +503,8 @@ export default function MainLayout() {
       <Layout style={{ overflow: "hidden" }}>
         <Header
           style={{
-            background: "#0d1117",
-            borderBottom: "1px solid #1f242c",
+            background: token.colorBgContainer,
+            borderBottom: `1px solid ${token.colorBorder}`,
             padding: "0 24px",
             display: "flex",
             alignItems: "center",
@@ -499,7 +529,7 @@ export default function MainLayout() {
             }
           />
         )}
-        <Content style={{ padding: 24, background: "#0d1117", overflow: "auto" }}>
+        <Content style={{ padding: 24, background: token.colorBgLayout, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
           <Routes>
             <Route index element={<Navigate to="/cluster" replace />} />
             <Route path="/cluster" element={<Cluster />} />
@@ -509,6 +539,7 @@ export default function MainLayout() {
             <Route path="/topics/:topicName/messages" element={<MessageBrowser />} />
             <Route path="/groups" element={<ConsumerGroups />} />
             <Route path="/producer" element={<MessageProducer />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/cluster" replace />} />
           </Routes>
         </Content>

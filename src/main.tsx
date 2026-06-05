@@ -4,6 +4,8 @@ import App from "./App";
 import "antd/dist/reset.css";
 import "./index.css";
 
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

@@ -55,6 +55,8 @@ export default function Cluster() {
   return (
     <Card
       title="Cluster Management"
+      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+      styles={{ body: { flex: 1, minHeight: 0, overflow: "auto" } }}
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
           Add Cluster

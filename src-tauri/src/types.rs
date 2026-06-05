@@ -203,6 +203,10 @@ pub struct AppConfig {
     pub fetch_limit_default: i32,
     #[serde(default = "default_max_bytes")]
     pub max_message_display_bytes: usize,
+    #[serde(default)]
+    pub allow_multiple_instances: bool,
+    #[serde(default = "default_true")]
+    pub check_updates_on_startup: bool,
 }
 fn default_fetch_limit() -> i32 {
     100
@@ -210,14 +214,19 @@ fn default_fetch_limit() -> i32 {
 fn default_max_bytes() -> usize {
     1_048_576
 }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            theme: "light".to_string(),
-            language: "zh-CN".to_string(),
+            theme: "dark".to_string(),
+            language: "en".to_string(),
             fetch_limit_default: default_fetch_limit(),
             max_message_display_bytes: default_max_bytes(),
+            allow_multiple_instances: false,
+            check_updates_on_startup: true,
         }
     }
 }

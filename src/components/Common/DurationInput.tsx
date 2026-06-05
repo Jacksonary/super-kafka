@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Checkbox, InputNumber, Select, Space } from "antd";
+import { InputNumber, Select, Space, Switch } from "antd";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../utils/format";
 
 const UNIT_OPTIONS: { value: DurationUnit; label: string }[] = [
@@ -12,10 +12,7 @@ const UNIT_OPTIONS: { value: DurationUnit; label: string }[] = [
 
 export interface DurationInputProps {
   /**
-   * Current value in milliseconds.
-   * - `null` / `undefined` → 数值框留空（=未填，调用方应跳过提交）
-   * - `-1` → Forever
-   * - 0 / 正整数 → 具体毫秒值
+   * Current value in milliseconds. null/undefined = empty (caller should skip submit). -1 = Forever.
    */
   value?: number | null;
   /** Emits null when the field is empty / forever-toggled-then-emptied. */
@@ -92,60 +89,49 @@ export default function DurationInput({
   }, [unit, amount, forever]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Space.Compact style={{ width: "100%" }}>
-      <InputNumber
-        min={0}
-        step={1}
-        precision={0}
-        style={{ width: "45%" }}
-        value={amount}
-        placeholder="留空表示不填"
-        onChange={(v) => {
-          touched.current = true;
-          if (v == null) {
-            setAmount(null);
-            return;
-          }
-          if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
-            setAmount(Math.floor(v));
-          }
-        }}
-        disabled={disabled || forever}
-      />
-      <Select
-        style={{ width: "30%" }}
-        value={unit}
-        onChange={(u) => {
-          touched.current = true;
-          setUnit(u);
-        }}
-        options={UNIT_OPTIONS}
-        disabled={disabled || forever}
-      />
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          padding: "0 11px",
-          border: "1px solid #d9d9d9",
-          borderLeft: 0,
-          borderRadius: "0 6px 6px 0",
-          background: "#fafafa",
-          width: "25%",
-          justifyContent: "center",
-        }}
-      >
-        <Checkbox
-          checked={forever}
-          onChange={(e) => {
+    <Space style={{ width: "100%" }}>
+      <Space.Compact>
+        <InputNumber
+          min={0}
+          step={1}
+          precision={0}
+          style={{ width: 120 }}
+          value={amount}
+          onChange={(v) => {
             touched.current = true;
-            setForever(e.target.checked);
+            if (v == null) {
+              setAmount(null);
+              return;
+            }
+            if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+              setAmount(Math.floor(v));
+            }
+          }}
+          disabled={disabled || forever}
+        />
+        <Select
+          style={{ width: 120 }}
+          value={unit}
+          onChange={(u) => {
+            touched.current = true;
+            setUnit(u);
+          }}
+          options={UNIT_OPTIONS}
+          disabled={disabled || forever}
+        />
+      </Space.Compact>
+      <Space size={6}>
+        <Switch
+          size="small"
+          checked={forever}
+          onChange={(v) => {
+            touched.current = true;
+            setForever(v);
           }}
           disabled={disabled}
-        >
-          Forever
-        </Checkbox>
-      </span>
-    </Space.Compact>
+        />
+        <span>Forever</span>
+      </Space>
+    </Space>
   );
 }

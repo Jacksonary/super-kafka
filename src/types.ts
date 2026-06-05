@@ -220,4 +220,6 @@ export interface AppConfig {
   language: "zh" | "en";
   fetch_limit_default: number;
   max_message_display_bytes: number;
+  allow_multiple_instances: boolean;
+  check_updates_on_startup: boolean;
 }

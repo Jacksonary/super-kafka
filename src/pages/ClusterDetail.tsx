@@ -123,7 +123,7 @@ export default function ClusterDetail() {
   ];
 
   return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+    <Space direction="vertical" size={12} style={{ width: "100%", flex: 1, minHeight: 0, overflow: "auto" }}>
       <Breadcrumb
         items={[
           { title: <a onClick={() => navigate("/cluster")}>Cluster</a> },
@@ -161,7 +161,7 @@ export default function ClusterDetail() {
             <Descriptions.Item label="Status">
               <StatusTag status={summary?.status} />
             </Descriptions.Item>
-            <Descriptions.Item label="Kafka 版本（区间）">
+            <Descriptions.Item label="Kafka version (range)">
               {summary?.kafka_version ?? "-"}
             </Descriptions.Item>
             <Descriptions.Item label="Broker Count">

@@ -4,7 +4,6 @@ import {
   Breadcrumb,
   Button,
   Card,
-  Checkbox,
   Descriptions,
   Input,
   InputNumber,
@@ -18,7 +17,7 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { ArrowLeftOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, EditOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -187,9 +186,9 @@ export default function TopicDetail() {
   }
 
   return (
-    <Spin spinning={loading}>
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        <Space>
+    <Spin spinning={loading} wrapperClassName="topic-detail-spin">
+      <Space direction="vertical" size={16} style={{ width: "100%", flex: 1, minHeight: 0, display: "flex" }}>
+        <Space style={{ flexShrink: 0 }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/topics")}>
             Back
           </Button>
@@ -201,26 +200,31 @@ export default function TopicDetail() {
           />
         </Space>
 
-        <Card>
+        <Card style={{ flexShrink: 0 }}>
           <Space direction="vertical" size={4} style={{ width: "100%" }}>
-            <Title level={4} style={{ margin: 0 }}>
-              {topicName}
-            </Title>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Title level={4} style={{ margin: 0 }}>
+                {topicName}
+              </Title>
+              <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={load}>
+                Refresh
+              </Button>
+            </div>
             {detail && (() => {
               const sel =
                 activeTab === "messages" && selectedPartition !== null
                   ? detail.partitions.find((p) => p.partition_id === selectedPartition)
                   : undefined;
               return (
-                <Descriptions column={3} size="small">
+                <Descriptions column={4} size="small">
                   <Descriptions.Item label="Partitions">
                     <Space size={4}>
                       {detail.partitions.length}
-                      <Tooltip title="增加分区数">
+                      <Tooltip title="Add partitions">
                         <Button
                           size="small"
                           type="text"
-                          icon={<PlusOutlined />}
+                          icon={<EditOutlined />}
                           onClick={() => setPartitionsModalOpen(true)}
                         />
                       </Tooltip>
@@ -234,7 +238,7 @@ export default function TopicDetail() {
                       <Tooltip title={currentRetentionMs == null ? undefined : `retention.ms = ${currentRetentionMs}`}>
                         <span>{formatDurationMs(currentRetentionMs)}</span>
                       </Tooltip>
-                      <Tooltip title="修改保留时间">
+                      <Tooltip title="Edit retention">
                         <Button
                           size="small"
                           type="text"
@@ -271,6 +275,7 @@ export default function TopicDetail() {
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
+          style={{ flex: 1, minHeight: 0 }}
           items={[
             {
               key: "partitions",
@@ -278,8 +283,10 @@ export default function TopicDetail() {
               children: (
                 <Card
                   size="small"
+                  style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+                  styles={{ body: { flex: 1, minHeight: 0, overflow: "hidden", padding: 0 } }}
                   extra={
-                    <Button icon={<ReloadOutlined />} size="small" onClick={load}>
+                    <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={load}>
                       Refresh
                     </Button>
                   }
@@ -290,6 +297,7 @@ export default function TopicDetail() {
                     columns={partitionColumns}
                     dataSource={detail?.partitions ?? []}
                     pagination={false}
+                    scroll={{ y: "max(200px, calc(100vh - 360px))" }}
                   />
                 </Card>
               ),
@@ -300,8 +308,13 @@ export default function TopicDetail() {
               children: (
                 <Card
                   size="small"
+                  style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+                  styles={{ body: { flex: 1, minHeight: 0, overflow: "hidden", padding: 0 } }}
                   extra={
                     <Space>
+                      <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={load}>
+                        Refresh
+                      </Button>
                       <Button
                         type="primary"
                         size="small"
@@ -326,6 +339,7 @@ export default function TopicDetail() {
                     columns={configColumns}
                     dataSource={detail?.configs ?? []}
                     pagination={false}
+                    scroll={{ y: "max(200px, calc(100vh - 360px))" }}
                   />
                 </Card>
               ),
@@ -363,7 +377,7 @@ export default function TopicDetail() {
           setSubmitting(true);
           try {
             await api.addPartitions(currentClusterId, topicName, newCount);
-            message.success(`分区数已增加到 ${newCount}`);
+            message.success(`Partition count increased to ${newCount}`);
             setPartitionsModalOpen(false);
             await load();
           } catch (e) {
@@ -386,7 +400,7 @@ export default function TopicDetail() {
             await api.updateTopicConfig(currentClusterId, topicName, {
               "retention.ms": String(newMs),
             });
-            message.success("保留时间已更新");
+            message.success("Retention updated");
             setRetentionModalOpen(false);
             await load();
           } catch (e) {
@@ -417,32 +431,27 @@ function PartitionsEditModal({
 }: PartitionsEditModalProps) {
   const minCount = currentCount + 1;
   const [newCount, setNewCount] = useState<number>(minCount);
-  const [acknowledged, setAcknowledged] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      setNewCount(minCount);
-      setAcknowledged(false);
-    }
+    if (open) setNewCount(minCount);
   }, [open, minCount]);
 
   return (
     <Modal
-      title="增加分区数"
+      title="Add Partitions"
       open={open}
       onCancel={onClose}
       onOk={() => onSubmit(newCount)}
-      okText="确认增加"
-      cancelText="取消"
+      okText="Confirm"
       confirmLoading={submitting}
-      okButtonProps={{ disabled: !acknowledged || newCount < minCount }}
+      okButtonProps={{ disabled: newCount < minCount }}
     >
       <Space direction="vertical" size={12} style={{ width: "100%" }}>
         <Descriptions column={1} size="small">
-          <Descriptions.Item label="当前分区数">{currentCount}</Descriptions.Item>
+          <Descriptions.Item label="Current count">{currentCount}</Descriptions.Item>
         </Descriptions>
         <div>
-          <Typography.Text>新分区数</Typography.Text>
+          <Typography.Text>New partition count</Typography.Text>
           <InputNumber
             min={minCount}
             step={1}
@@ -456,18 +465,6 @@ function PartitionsEditModal({
             }}
           />
         </div>
-        <Alert
-          type="warning"
-          showIcon
-          message="分区数只能增加，且增加后会改变 key 的分区分布"
-          description="新增分区后，原本同一 key 落在同一分区的消息可能会被分散到新分区。如果业务依赖 key 有序性，请评估影响后再操作。"
-        />
-        <Checkbox
-          checked={acknowledged}
-          onChange={(e) => setAcknowledged(e.target.checked)}
-        >
-          我知道这会改变 key 分布
-        </Checkbox>
       </Space>
     </Modal>
   );
@@ -488,7 +485,6 @@ function RetentionEditModal({
   onClose,
   onSubmit,
 }: RetentionEditModalProps) {
-  // null = 用户未填（保存按钮禁用，提交时跳过后端调用）
   const [draftMs, setDraftMs] = useState<number | null>(currentMs);
 
   useEffect(() => {
@@ -501,21 +497,20 @@ function RetentionEditModal({
 
   return (
     <Modal
-      title="修改保留时间"
+      title="Edit Retention"
       open={open}
       onCancel={onClose}
       onOk={() => {
         if (draftMs == null) return;
         onSubmit(draftMs);
       }}
-      okText="保存"
-      cancelText="取消"
+      okText="Save"
       confirmLoading={submitting}
       okButtonProps={{ disabled: !canSubmit }}
     >
       <Space direction="vertical" size={12} style={{ width: "100%" }}>
         <Descriptions column={1} size="small">
-          <Descriptions.Item label="当前保留时间">
+          <Descriptions.Item label="Current retention">
             {formatDurationMs(currentMs)}
             {currentMs != null && (
               <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
@@ -525,9 +520,6 @@ function RetentionEditModal({
           </Descriptions.Item>
         </Descriptions>
         <DurationInput value={draftMs} onChange={setDraftMs} />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          注意：留空或与当前值一致不会触发更新；保留时间还受 retention.bytes 限制；修改后已有消息不会立即清理（log cleaner 异步执行）。
-        </Typography.Text>
       </Space>
     </Modal>
   );

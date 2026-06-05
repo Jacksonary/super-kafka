@@ -86,13 +86,16 @@ function toBackendFetchMode(mode: T.FetchMode): UnknownRecord {
 }
 
 function normalizeAppConfig(cfg: T.AppConfig): T.AppConfig {
-  const languageRaw = String((cfg as unknown as UnknownRecord).language ?? "zh").toLowerCase();
-  const themeRaw = String((cfg as unknown as UnknownRecord).theme ?? "system").toLowerCase();
+  const raw = cfg as unknown as UnknownRecord;
+  const languageRaw = String(raw.language ?? "en").toLowerCase();
+  const themeRaw = String(raw.theme ?? "dark").toLowerCase();
   return {
-    theme: themeRaw === "dark" || themeRaw === "light" || themeRaw === "system" ? themeRaw : "system",
+    theme: themeRaw === "dark" || themeRaw === "light" || themeRaw === "system" ? themeRaw : "dark",
     language: languageRaw.startsWith("en") ? "en" : "zh",
-    fetch_limit_default: Number((cfg as unknown as UnknownRecord).fetch_limit_default ?? 100),
-    max_message_display_bytes: Number((cfg as unknown as UnknownRecord).max_message_display_bytes ?? 1_048_576),
+    fetch_limit_default: Number(raw.fetch_limit_default ?? 100),
+    max_message_display_bytes: Number(raw.max_message_display_bytes ?? 1_048_576),
+    allow_multiple_instances: Boolean(raw.allow_multiple_instances ?? false),
+    check_updates_on_startup: raw.check_updates_on_startup === undefined ? true : Boolean(raw.check_updates_on_startup),
   };
 }
 

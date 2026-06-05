@@ -1,4 +1,4 @@
-import { Button, Descriptions, Drawer, Empty, Space, Tag, Tooltip, Typography, message as antMessage } from "antd";
+import { Button, Descriptions, Drawer, Empty, Space, Tag, Tooltip, Typography, message as antMessage, theme } from "antd";
 import { CopyOutlined, SendOutlined } from "@ant-design/icons";
 import type { KafkaMessage } from "../../types";
 import { formatTimestamp } from "../../utils/format";
@@ -23,11 +23,12 @@ function tryFormatJson(text: string | null): string | null {
 }
 
 function CodeBlock({ children }: { children: string }) {
+  const { token } = theme.useToken();
   return (
     <pre
       style={{
-        background: "#0a0e14",
-        border: "1px solid #1f242c",
+        background: token.colorFillQuaternary,
+        border: `1px solid ${token.colorBorderSecondary}`,
         borderRadius: 4,
         padding: 12,
         margin: 0,
@@ -36,6 +37,7 @@ function CodeBlock({ children }: { children: string }) {
         fontSize: 12,
         maxHeight: 360,
         overflow: "auto",
+        color: token.colorText,
       }}
     >
       {children}

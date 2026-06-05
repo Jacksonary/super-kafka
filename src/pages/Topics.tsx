@@ -9,9 +9,9 @@ import {
   Modal,
   Popconfirm,
   Space,
-  Spin,
   Table,
   Tag,
+  theme,
   Typography,
   App as AntdApp,
 } from "antd";
@@ -29,6 +29,7 @@ export default function Topics() {
   const { currentClusterId } = useClusterStore();
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
+  const { token } = theme.useToken();
 
   const [topics, setTopics] = useState<TopicSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -110,7 +111,10 @@ export default function Topics() {
         <Space size={6}>
           <a
             onClick={() => navigate(`/topics/${encodeURIComponent(name)}`)}
-            style={{ fontFamily: "ui-monospace, 'JetBrains Mono', Menlo, monospace" }}
+            style={{
+              fontFamily: "ui-monospace, 'JetBrains Mono', Menlo, monospace",
+              color: token.colorText,
+            }}
           >
             {name}
           </a>
@@ -126,7 +130,7 @@ export default function Topics() {
       title: "Partitions",
       dataIndex: "partition_count",
       key: "partition_count",
-      width: 110,
+      width: 130,
       align: "right",
       sorter: (a, b) => a.partition_count - b.partition_count,
     },
@@ -134,7 +138,7 @@ export default function Topics() {
       title: "Replication",
       dataIndex: "replication_factor",
       key: "replication_factor",
-      width: 110,
+      width: 140,
       align: "right",
       sorter: (a, b) => a.replication_factor - b.replication_factor,
     },
@@ -162,8 +166,8 @@ export default function Topics() {
   }
 
   return (
-    <Spin spinning={loading}>
-      <Space style={{ marginBottom: 12, width: "100%", justifyContent: "space-between" }}>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <Space style={{ marginBottom: 12, width: "100%", justifyContent: "space-between", flexShrink: 0 }}>
         <Input
           allowClear
           prefix={<SearchOutlined />}
@@ -173,7 +177,7 @@ export default function Topics() {
           style={{ width: 320 }}
         />
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={load}>
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             Refresh
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
@@ -187,10 +191,19 @@ export default function Topics() {
         rowKey="name"
         dataSource={filtered}
         columns={columns}
-        pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
+        loading={loading}
+        pagination={{
+          defaultPageSize: 20,
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 50],
+          showLessItems: true,
+          showQuickJumper: true,
+          showTotal: (total) => `Total ${total}`,
+        }}
         locale={{
           emptyText: <Empty description="No topics" />,
         }}
+        scroll={{ y: "max(200px, calc(100vh - 220px))" }}
       />
 
       <Modal
@@ -230,14 +243,14 @@ export default function Topics() {
             <InputNumber min={1} max={10} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item
-            label="保留时间"
+            label="Retention"
             name="retention_ms"
-            extra="留空则使用集群默认；勾选 Forever 表示永久保留 (-1)"
+            extra="Leave blank to use cluster default. Toggle Forever for indefinite retention (-1)."
           >
             <DurationInput defaultUnit="d" />
           </Form.Item>
         </Form>
       </Modal>
-    </Spin>
+    </div>
   );
 }

@@ -223,7 +223,7 @@ export default function MessageBrowser({
       width: 90,
       align: "right",
       render: (_, m) => (
-        <Tooltip title="业务可见的 value 字节数，不含协议开销 / 压缩前">
+        <Tooltip title="Value byte size before compression, excluding protocol overhead">
           <Text type="secondary" style={{ fontSize: 12 }}>
             {formatBytes(m.value_raw.length)}
           </Text>
@@ -262,7 +262,11 @@ export default function MessageBrowser({
   })();
 
   return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+    <Space
+      direction="vertical"
+      size={12}
+      style={embeddedTopic ? { width: "100%" } : { width: "100%", flex: 1, minHeight: 0 }}
+    >
       <Card size="small">
         <Space direction="vertical" size={8} style={{ width: "100%" }}>
           {/* 模式切换 */}
@@ -406,12 +410,19 @@ export default function MessageBrowser({
         columns={columns}
         dataSource={viewMode === "live" ? liveMessages : filtered}
         loading={viewMode === "fetch" ? loading : false}
-        pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [20, 50, 100] }}
+        pagination={{
+          defaultPageSize: 20,
+          showSizeChanger: true,
+          pageSizeOptions: [20, 50, 100],
+          showLessItems: true,
+          showQuickJumper: true,
+          showTotal: (total) => `Total ${total}`,
+        }}
         onRow={(record) => ({
           onClick: () => setSelected(record),
           style: { cursor: "pointer" },
         })}
-        scroll={{ x: 900 }}
+        scroll={{ x: 900, y: embeddedTopic ? "max(200px, calc(100vh - 540px))" : "max(200px, calc(100vh - 380px))" }}
       />
 
       <MessageDetailDrawer

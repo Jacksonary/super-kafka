@@ -14,7 +14,7 @@ const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
 // in MainLayout owns the update check in that case, so the auto-check must stand down.
 const PENDING_UPDATE_KEY = "super-kafka:install-update-on-launch";
 
-export function useUpdateCheck(currentVersion: string) {
+export function useUpdateCheck(currentVersion: string, enabled: boolean = true) {
   const [state, setState] = useState<UpdateState>({ status: "idle" });
   const [checking, setChecking] = useState(false);
   const runningRef = useRef(false);
@@ -52,12 +52,13 @@ export function useUpdateCheck(currentVersion: string) {
   };
 
   useEffect(() => {
+    if (!enabled) return;
     // Defer to MainLayout's launch-time install flow when an update is pending,
     // so the two paths don't run concurrent check() calls and clobber state.
     let pending = false;
     try { pending = localStorage.getItem(PENDING_UPDATE_KEY) === "1"; } catch { /* ignore */ }
     if (!pending) doCheck();
-  }, [currentVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentVersion, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recheck = async (): Promise<"up-to-date" | "error" | null> => {
     sessionStorage.removeItem(CACHE_KEY);

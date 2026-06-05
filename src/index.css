@@ -2,30 +2,59 @@ html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #0d1117;
-  color: rgba(255, 255, 255, 0.88);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
     sans-serif;
+}
+
+html[data-theme="dark"], html[data-theme="dark"] body {
+  background: #0d1117;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+html[data-theme="light"], html[data-theme="light"] body {
+  background: #f5f7fa;
+  color: rgba(0, 0, 0, 0.88);
 }
 
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-::-webkit-scrollbar-thumb {
-  background: #30363d;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #484f58;
-}
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #c1c8d1;
+  border-radius: 4px;
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: #9aa3ad;
+}
+
 pre {
   font-family: "SF Mono", Menlo, Consolas, Monaco, "Courier New", monospace;
+}
+
+/* 主题切换瞬间，全站禁用 transition/animation 一帧。
+   避开 antd cssinjs 注入新 token hash class 与旧样式短暂并存导致的色彩闪烁
+   （表现：Radio.Button 等组件 ::before/边框会闪现一帧"新主题色套到旧选中态"的粗框）。
+   class 由 React 在 useLayoutEffect 加，下一帧 RAF 之后移除。 */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
 }
 
 /* Sider 内部 children 容器继承 flex-column，使 footer 能贴底 */
@@ -34,4 +63,35 @@ pre {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+/* TopicDetail 用 Spin 包外层，需要让 Spin 容器撑满父级 flex 高度 */
+.topic-detail-spin,
+.topic-detail-spin > .ant-spin-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 让 TopicDetail 里 flex:1 的 Tabs 内部能撑满 + 滚动：
+   .ant-tabs 自己已经 flex column；这里让它的 content-holder 占据剩余高度并不出现内部滚（让里面 Card/Table 自滚） */
+.ant-tabs.ant-tabs-top {
+  display: flex;
+  flex-direction: column;
+}
+.ant-tabs.ant-tabs-top > .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ant-tabs.ant-tabs-top > .ant-tabs-content-holder > .ant-tabs-content {
+  flex: 1;
+  min-height: 0;
+}
+.ant-tabs.ant-tabs-top > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane-active {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }

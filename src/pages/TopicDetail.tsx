@@ -35,6 +35,8 @@ export default function TopicDetail() {
   const [detail, setDetail] = useState<TopicDetailType | null>(null);
   const [loading, setLoading] = useState(false);
   const [editingConfig, setEditingConfig] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState("partitions");
+  const [selectedPartition, setSelectedPartition] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!currentClusterId || !topicName) return;
@@ -176,26 +178,46 @@ export default function TopicDetail() {
             <Title level={4} style={{ margin: 0 }}>
               {topicName}
             </Title>
-            {detail && (
-              <Descriptions column={3} size="small">
-                <Descriptions.Item label="Partitions">
-                  {detail.partitions.length}
-                </Descriptions.Item>
-                <Descriptions.Item label="Replication Factor">
-                  {detail.partitions[0]?.replicas.length ?? "-"}
-                </Descriptions.Item>
-                <Descriptions.Item label="Total Messages">
-                  {formatNumber(
-                    detail.partitions.reduce((sum, p) => sum + p.message_count, 0),
+            {detail && (() => {
+              const sel =
+                activeTab === "messages" && selectedPartition !== null
+                  ? detail.partitions.find((p) => p.partition_id === selectedPartition)
+                  : undefined;
+              return (
+                <Descriptions column={3} size="small">
+                  <Descriptions.Item label="Partitions">
+                    {detail.partitions.length}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Replication Factor">
+                    {detail.partitions[0]?.replicas.length ?? "-"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Total Messages">
+                    {formatNumber(
+                      detail.partitions.reduce((sum, p) => sum + p.message_count, 0),
+                    )}
+                  </Descriptions.Item>
+                  {sel && (
+                    <>
+                      <Descriptions.Item label={`Partition ${sel.partition_id} Start`}>
+                        {formatNumber(sel.log_start_offset)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label={`Partition ${sel.partition_id} End`}>
+                        {formatNumber(sel.log_end_offset)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label={`Partition ${sel.partition_id} Messages`}>
+                        {formatNumber(sel.message_count)}
+                      </Descriptions.Item>
+                    </>
                   )}
-                </Descriptions.Item>
-              </Descriptions>
-            )}
+                </Descriptions>
+              );
+            })()}
           </Space>
         </Card>
 
         <Tabs
-          defaultActiveKey="partitions"
+          activeKey={activeTab}
+          onChange={setActiveTab}
           items={[
             {
               key: "partitions",
@@ -258,7 +280,14 @@ export default function TopicDetail() {
             {
               key: "messages",
               label: "Messages",
-              children: <MessageBrowser embeddedTopic={topicName} embeddedPartitionCount={detail?.partitions.length} />,
+              children: (
+                <MessageBrowser
+                  embeddedTopic={topicName}
+                  embeddedPartitionCount={detail?.partitions.length}
+                  partition={selectedPartition}
+                  onPartitionChange={setSelectedPartition}
+                />
+              ),
             },
             {
               key: "consumer-groups",

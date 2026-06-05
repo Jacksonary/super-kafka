@@ -38,16 +38,28 @@ const LIVE_MAX_BUFFER = 500;
 interface Props {
   embeddedTopic?: string;
   embeddedPartitionCount?: number;
+  // When provided, partition selection is controlled by the parent (used by
+  // TopicDetail to show the selected partition's offsets in the summary header).
+  partition?: number | null;
+  onPartitionChange?: (partition: number | null) => void;
 }
 
-export default function MessageBrowser({ embeddedTopic, embeddedPartitionCount }: Props) {
+export default function MessageBrowser({
+  embeddedTopic,
+  embeddedPartitionCount,
+  partition: controlledPartition,
+  onPartitionChange,
+}: Props) {
   const { currentClusterId } = useClusterStore();
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
 
   const [topics, setTopics] = useState<TopicSummary[]>([]);
   const [topic, setTopic] = useState<string | null>(embeddedTopic ?? null);
-  const [partition, setPartition] = useState<number | null>(null);
+  const [internalPartition, setInternalPartition] = useState<number | null>(null);
+  const controlled = onPartitionChange !== undefined;
+  const partition = controlled ? (controlledPartition ?? null) : internalPartition;
+  const setPartition = controlled ? onPartitionChange : setInternalPartition;
   const [modeKind, setModeKind] = useState<FetchModeKind>("latest");
   const [fromOffset, setFromOffset] = useState<number>(0);
   const [timeRange, setTimeRange] = useState<[Dayjs, Dayjs] | null>(null);

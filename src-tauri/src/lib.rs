@@ -44,6 +44,16 @@ pub fn run() {
             }
         }));
     }
+    // 根据用户保存的 theme 动态调整 webview 启动背景色，避免 light 用户启动时
+    // window 默认 dark 底闪一下再切 light（tauri.conf.json 是静态的，写死一个值
+    // 对另一种主题就会闪）。
+    let mut context = tauri::generate_context!();
+    if app_config_init.theme == "light" {
+        if let Some(win) = context.config_mut().app.windows.get_mut(0) {
+            win.background_color = Some(tauri::utils::config::Color(245, 247, 250, 255));
+        }
+    }
+
     builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -81,6 +91,6 @@ pub fn run() {
             commands::settings::get_app_config,
             commands::settings::save_app_config,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

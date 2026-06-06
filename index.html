@@ -4,6 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Super Kafka</title>
+    <!--
+      Inline boot script: 同步从 localStorage 读 theme 并写到 <html data-theme> 上。
+      必须在 <body> 之前的 inline 位置，且不带 defer/module，浏览器才会在第一次 paint
+      之前同步执行。否则 main.tsx (type=module) 异步加载期间，浏览器会用默认白底渲染
+      一帧 → 闪屏。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("super-kafka:theme");
+          document.documentElement.dataset.theme = t === "light" ? "light" : "dark";
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
+    <!--
+      Inline style: 在外部 CSS 还没加载完时立刻给 html/body 一个主题背景，避免
+      WebView 第一帧的白底闪。规则比 index.css 简化，只覆盖背景色。
+    -->
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #0d1117; }
+      html[data-theme="light"], html[data-theme="light"] body { background: #f5f7fa; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

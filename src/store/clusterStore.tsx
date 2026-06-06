@@ -12,6 +12,9 @@ interface ClusterStoreValue {
   currentSummary: ClusterSummary | null;
   refreshCurrentSummary: () => Promise<void>;
   connecting: boolean;
+  /** Counter that bumps when external callers want to open the Add Cluster modal on the Cluster page. */
+  addClusterRequestId: number;
+  requestAddCluster: () => void;
 }
 
 const ClusterStoreContext = createContext<ClusterStoreValue | null>(null);
@@ -31,6 +34,11 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
   });
   const [currentSummary, setCurrentSummary] = useState<ClusterSummary | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [addClusterRequestId, setAddClusterRequestId] = useState(0);
+
+  const requestAddCluster = useCallback(() => {
+    setAddClusterRequestId((n) => n + 1);
+  }, []);
 
   const setCurrentClusterId = useCallback((id: string | null) => {
     setCurrentClusterIdState(id);
@@ -134,6 +142,8 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     currentSummary,
     refreshCurrentSummary,
     connecting,
+    addClusterRequestId,
+    requestAddCluster,
   };
 
   return (

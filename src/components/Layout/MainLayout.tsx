@@ -62,7 +62,7 @@ function GiteeIcon() {
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { clusters, currentClusterId, setCurrentClusterId, currentSummary, connecting, refreshCurrentSummary } = useClusterStore();
+  const { clusters, currentClusterId, setCurrentClusterId, currentSummary, connecting, refreshCurrentSummary, requestAddCluster } = useClusterStore();
   const { token } = theme.useToken();
   const { config: appConfig } = useSettings();
   const isDark = appConfig.theme !== "light";
@@ -231,19 +231,11 @@ export default function MainLayout() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10, overflow: "hidden" }}>
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                overflow: "hidden",
-                flexShrink: 0,
-                border: `1.5px solid ${token.colorPrimary}80`,
-                boxShadow: isDark ? `0 0 8px ${token.colorPrimary}40` : "none",
-              }}
-            >
-              <img src={logoUrl} alt="logo" style={{ width: 32, height: 32, display: "block" }} />
-            </div>
+            <img
+              src={logoUrl}
+              alt="logo"
+              style={{ width: 32, height: 32, flexShrink: 0, display: "block" }}
+            />
             {!collapsed && (
               <Text strong style={{ color: token.colorPrimary, fontSize: 16, whiteSpace: "nowrap" }}>
                 Super Kafka
@@ -309,7 +301,12 @@ export default function MainLayout() {
                       block
                       icon={<PlusOutlined />}
                       style={{ textAlign: "left", paddingLeft: 4 }}
-                      onClick={() => navigate("/cluster")}
+                      onClick={() => {
+                        // 先跳到 Cluster 页（保证 Cluster 组件已 mount），再请求弹窗。
+                        // requestAddCluster 通过 store 计数器变化触发 Cluster 页 useEffect 打开 Modal。
+                        navigate("/cluster");
+                        requestAddCluster();
+                      }}
                     >
                       Add Cluster
                     </Button>

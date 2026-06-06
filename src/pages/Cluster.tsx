@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -22,9 +22,19 @@ const { Text } = Typography;
 export default function Cluster() {
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
-  const { clusters, refreshClusters, currentClusterId, setCurrentClusterId } = useClusterStore();
+  const { clusters, refreshClusters, currentClusterId, setCurrentClusterId, addClusterRequestId } = useClusterStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ClusterConfig | null>(null);
+
+  // 当外部（侧边栏 Add Cluster 入口）请求新增时，自动打开 Modal。
+  // 用 ref 跳过组件 mount 时的初始值，避免一打开 Cluster 页就弹窗。
+  const lastSeenAddRequest = useRef(addClusterRequestId);
+  useEffect(() => {
+    if (addClusterRequestId === lastSeenAddRequest.current) return;
+    lastSeenAddRequest.current = addClusterRequestId;
+    setEditing(null);
+    setModalOpen(true);
+  }, [addClusterRequestId]);
 
   // HashMap-backed list_configs returns an unstable order; sort by creation time
   // so cards keep a stable, predictable order across restarts and edits.

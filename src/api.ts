@@ -212,6 +212,29 @@ export const api = {
     await tauriInvoke<void>("stop_live_consume", { sessionId });
   },
 
+  /**
+   * 流式导出消息到 CSV。后端边拉边写文件，通过 Channel 回传进度。
+   * 返回的 Promise 在导出结束（完成/取消/出错）时 resolve。
+   */
+  async exportMessages(
+    req: T.ExportRequest,
+    sessionId: string,
+    onProgress: (p: T.ExportProgress) => void,
+  ) {
+    const { Channel } = await import("@tauri-apps/api/core");
+    const ch = new Channel<T.ExportProgress>();
+    ch.onmessage = (p) => onProgress(p);
+    await tauriInvoke<void>("export_messages", {
+      req: { ...req, fetch_mode: toBackendFetchMode(req.fetch_mode) },
+      sessionId,
+      channel: ch,
+    });
+  },
+
+  async stopExport(sessionId: string) {
+    await tauriInvoke<void>("stop_export", { sessionId });
+  },
+
   async listConsumerGroups(clusterId: string) {
     return tauriInvoke<T.ConsumerGroupSummary[]>("list_consumer_groups", { clusterId });
   },

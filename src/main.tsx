@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { installWebviewGuards } from "./utils/webviewGuards";
 import "antd/dist/reset.css";
 import "./index.css";
 
@@ -14,7 +15,7 @@ try {
   document.documentElement.dataset.theme = "dark";
 }
 
-document.addEventListener("contextmenu", (e) => e.preventDefault());
+installWebviewGuards();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

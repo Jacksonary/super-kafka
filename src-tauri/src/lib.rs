@@ -22,6 +22,8 @@ pub struct LiveSession {
 pub struct AppState {
     pub pool: Arc<ClusterPool>,
     pub live_sessions: Mutex<HashMap<String, LiveSession>>,
+    /// Cancel flags for in-flight export tasks, keyed by session_id.
+    pub export_sessions: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub app_config: parking_lot::Mutex<AppConfig>,
 }
 
@@ -58,9 +60,11 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             pool,
             live_sessions: Mutex::new(HashMap::new()),
+            export_sessions: Mutex::new(HashMap::new()),
             app_config: parking_lot::Mutex::new(app_config_init),
         })
         .invoke_handler(tauri::generate_handler![
@@ -82,6 +86,8 @@ pub fn run() {
             commands::messages::produce_message,
             commands::messages::start_live_consume,
             commands::messages::stop_live_consume,
+            commands::messages::export_messages,
+            commands::messages::stop_export,
             commands::groups::list_consumer_groups,
             commands::groups::get_consumer_group_detail,
             commands::groups::delete_consumer_group,
@@ -90,6 +96,7 @@ pub fn run() {
             commands::groups::get_topic_group_partition_lag,
             commands::settings::get_app_config,
             commands::settings::save_app_config,
+            commands::fs::write_text_file,
         ])
         .run(context)
         .expect("error while running tauri application");

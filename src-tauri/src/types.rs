@@ -116,6 +116,36 @@ pub struct FetchMessagesResponse {
     pub has_more: bool,
 }
 
+/// One CSV column: `name` is the header; `path` is the dotted JSON path to read
+/// (empty path => use `name` as the path).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExportColumn {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExportRequest {
+    pub cluster_id: String,
+    pub topic: String,
+    pub partition: Option<i32>,
+    pub fetch_mode: serde_json::Value,
+    /// None = export until EOF (all available); Some(n) = stop after n records.
+    pub max_records: Option<i64>,
+    pub columns: Vec<ExportColumn>,
+    /// Destination file path chosen via the native save dialog on the frontend.
+    pub out_path: String,
+}
+
+/// Progress event pushed to the frontend over a Channel during export.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportProgress {
+    pub written: i64,
+    pub done: bool,
+    pub cancelled: bool,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ProduceMessageRequest {
     pub cluster_id: String,

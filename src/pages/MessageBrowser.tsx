@@ -26,7 +26,7 @@ import { useClusterStore } from "../store/clusterStore";
 import type { FetchMode, KafkaMessage, TopicSummary } from "../types";
 import { formatBytes, formatTimestamp, truncate } from "../utils/format";
 import MessageDetailDrawer from "../components/Message/MessageDetailDrawer";
-import { exportMessages } from "../utils/export";
+import ExportColumnsModal from "../components/Message/ExportColumnsModal";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -70,6 +70,7 @@ export default function MessageBrowser({
   const [loading, setLoading] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [selected, setSelected] = useState<KafkaMessage | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
 
   // Live mode state
   const [viewMode, setViewMode] = useState<ViewMode>("fetch");
@@ -389,10 +390,7 @@ export default function MessageBrowser({
           <Button
             icon={<DownloadOutlined />}
             disabled={(viewMode === "live" ? liveMessages : filtered).length === 0}
-            onClick={() => {
-              const data = viewMode === "live" ? liveMessages : filtered;
-              if (topic) exportMessages(data, topic);
-            }}
+            onClick={() => setExportOpen(true)}
           >
             Export CSV
           </Button>
@@ -433,6 +431,16 @@ export default function MessageBrowser({
         onReplay={(msg, t) => {
           navigate("/producer", { state: { replayMessage: msg, replayTopic: t } });
         }}
+      />
+
+      <ExportColumnsModal
+        open={exportOpen}
+        clusterId={currentClusterId}
+        topic={topic ?? ""}
+        partition={partition}
+        fetchMode={fetchMode}
+        sampleMessages={viewMode === "live" ? liveMessages : filtered}
+        onClose={() => setExportOpen(false)}
       />
     </Space>
   );

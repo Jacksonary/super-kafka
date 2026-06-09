@@ -129,6 +129,31 @@ export interface FetchMessagesResponse {
   has_more: boolean;
 }
 
+// ── 导出 ──────────────────────────────────────────────────
+
+/** 一列：CSV 列名 + JSON 属性路径（path 为空时后端默认用 name） */
+export interface ExportColumn {
+  name: string;
+  path: string;
+}
+
+export interface ExportRequest {
+  cluster_id: string;
+  topic: string;
+  partition: number | null;
+  fetch_mode: FetchMode;
+  max_records: number | null;   // null = 拉到 EOF
+  columns: ExportColumn[];
+  out_path: string;             // 原生保存框选定的路径
+}
+
+export interface ExportProgress {
+  written: number;
+  done: boolean;
+  cancelled: boolean;
+  error: string | null;
+}
+
 export type CompressionCodec = "none" | "gzip" | "snappy" | "lz4" | "zstd";
 
 export interface ProduceMessageRequest {

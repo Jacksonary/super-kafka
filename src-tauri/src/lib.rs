@@ -97,6 +97,7 @@ pub fn run() {
             commands::settings::get_app_config,
             commands::settings::save_app_config,
             commands::fs::write_text_file,
+            commands::update::check_update,
         ])
         .run(context)
         .expect("error while running tauri application");

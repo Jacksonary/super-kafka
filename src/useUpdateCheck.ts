@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { api } from "./api";
 
 export type UpdateState =
   | { status: "idle" }
@@ -14,8 +15,30 @@ const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
 // in MainLayout owns the update check in that case, so the auto-check must stand down.
 const PENDING_UPDATE_KEY = "super-kafka:install-update-on-launch";
 
+interface FallbackInfo {
+  latestVersion: string;
+  releaseUrl: string;
+}
+
+function parseVersion(v: string): number[] {
+  return v.replace(/^v/i, "").split(".").map(Number);
+}
+
+function isNewer(remote: string, local: string): boolean {
+  const r = parseVersion(remote);
+  const l = parseVersion(local);
+  for (let i = 0; i < Math.max(r.length, l.length); i++) {
+    const rv = r[i] ?? 0;
+    const lv = l[i] ?? 0;
+    if (rv > lv) return true;
+    if (rv < lv) return false;
+  }
+  return false;
+}
+
 export function useUpdateCheck(currentVersion: string, enabled: boolean = true) {
   const [state, setState] = useState<UpdateState>({ status: "idle" });
+  const [fallback, setFallback] = useState<FallbackInfo | null>(null);
   const [checking, setChecking] = useState(false);
   const runningRef = useRef(false);
 
@@ -43,7 +66,17 @@ export function useUpdateCheck(currentVersion: string, enabled: boolean = true) 
         return "up-to-date";
       }
     } catch {
-      if (skipCache) return "error";
+      try {
+        const info = await api.checkUpdate();
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
+        if (isNewer(info.latestVersion, currentVersion)) {
+          setFallback(info);
+        } else if (skipCache) {
+          return "up-to-date";
+        }
+      } catch {
+        if (skipCache) return "error";
+      }
     } finally {
       runningRef.current = false;
       setChecking(false);
@@ -65,5 +98,5 @@ export function useUpdateCheck(currentVersion: string, enabled: boolean = true) 
     return doCheck(true);
   };
 
-  return { state, setState, checking, recheck };
+  return { state, setState, fallback, checking, recheck };
 }

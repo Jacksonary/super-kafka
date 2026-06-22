@@ -272,4 +272,8 @@ export const api = {
     const r = await tauriInvoke<{ ok?: boolean }>("save_app_config", { config });
     return { ok: r.ok ?? true };
   },
+
+  checkUpdate(): Promise<{ latestVersion: string; releaseUrl: string }> {
+    return tauriInvoke("check_update");
+  },
 };

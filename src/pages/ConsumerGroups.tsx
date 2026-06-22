@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
   Card,
+  Input,
   Popconfirm,
   Space,
   Spin,
@@ -11,7 +12,7 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
@@ -40,6 +41,13 @@ export default function ConsumerGroups() {
   const [groups, setGroups] = useState<ConsumerGroupSummary[]>([]);
   const [details, setDetails] = useState<Record<string, ConsumerGroupDetail>>({});
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState<string>("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return groups;
+    return groups.filter((g) => g.group_id.toLowerCase().includes(q));
+  }, [groups, search]);
 
   const load = useCallback(async () => {
     if (!currentClusterId) return;
@@ -131,16 +139,26 @@ export default function ConsumerGroups() {
       style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
       styles={{ body: { flex: 1, minHeight: 0, overflow: "hidden", padding: 0 } }}
       extra={
-        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
-          Refresh
-        </Button>
+        <Space>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="Filter groups by ID"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 260 }}
+          />
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
+            Refresh
+          </Button>
+        </Space>
       }
     >
       <Table<ConsumerGroupSummary>
         rowKey="group_id"
         size="middle"
         columns={columns}
-        dataSource={groups}
+        dataSource={filtered}
         loading={loading}
         pagination={false}
         scroll={{ y: "max(200px, calc(100vh - 200px))" }}

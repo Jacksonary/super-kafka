@@ -426,8 +426,9 @@ export default function MainLayout() {
               {updateState.status === "available" ? (
                 <Tooltip title={`${updateState.version} available — click to update`}>
                   <a href="#" onClick={(e) => { e.preventDefault(); handleUpdate(); }} style={{ cursor: "pointer", textDecoration: "none" }}>
+                    <span className="update-dot" />
                     <Text style={{ fontSize: 11, color: token.colorWarningText }} ellipsis>
-                      v{__APP_VERSION__} → {updateState.version}
+                      v{__APP_VERSION__} → v{updateState.version}
                     </Text>
                   </a>
                 </Tooltip>
@@ -440,7 +441,8 @@ export default function MainLayout() {
                 </div>
               ) : updateState.status === "ready" ? (
                 <a href="#" onClick={(e) => { e.preventDefault(); showRestartModal(readyVersionRef.current); }} style={{ cursor: "pointer", textDecoration: "none" }}>
-                  <Text style={{ fontSize: 11, color: token.colorSuccessText }}>
+                  <span className="update-dot" />
+                  <Text style={{ fontSize: 11, color: token.colorSuccessText }} ellipsis>
                     Update ready — restart
                   </Text>
                 </a>
@@ -453,6 +455,7 @@ export default function MainLayout() {
               ) : fallback ? (
                 <Tooltip title={`v${fallback.latestVersion} available — click to open release`}>
                   <a href="#" onClick={(e) => { e.preventDefault(); openUrl(fallback.releaseUrl); }} style={{ cursor: "pointer", textDecoration: "none" }}>
+                    <span className="update-dot" />
                     <Text style={{ fontSize: 11, color: token.colorWarningText }} ellipsis>
                       v{__APP_VERSION__} → v{fallback.latestVersion}
                     </Text>

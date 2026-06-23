@@ -101,3 +101,18 @@ html.theme-switching *::after {
   display: flex;
   flex-direction: column;
 }
+
+/* 更新状态圆点 */
+.update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fa8c16;
+  animation: update-pulse 2.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes update-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}

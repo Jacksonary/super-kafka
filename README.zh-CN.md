@@ -59,6 +59,11 @@
 > Linux AppImage 无需安装，赋予执行权限后直接运行：
 > `chmod +x Super\ Kafka_*.AppImage && ./Super\ Kafka_*.AppImage`
 
+> **macOS**：目前仅提供 Apple Silicon（M 系列）版本，不支持 Intel Mac。由于应用未经代码签名和公证，首次打开时 Gatekeeper 会提示"已损坏"。在终端执行以下命令移除隔离属性即可：
+> ```bash
+> xattr -cr "/Applications/Super Kafka.app"
+> ```
+
 ## 配置说明
 
 首次启动时集群列表为空，点击侧边栏下拉的 **+ Add Cluster**（或进入 Cluster 页面）添加集群即可。集群元数据保存在系统应用数据目录：

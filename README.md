@@ -59,6 +59,11 @@ Head to [GitHub Releases](https://github.com/Jacksonary/super-kafka/releases) or
 > For Linux AppImage, no installation is required — just make it executable and run:
 > `chmod +x Super\ Kafka_*.AppImage && ./Super\ Kafka_*.AppImage`
 
+> **macOS**: only Apple Silicon (M-series) Macs are supported; Intel Macs are not built. The app isn't code-signed/notarized, so Gatekeeper will report it as "damaged" on first launch. Remove the quarantine attribute to fix it:
+> ```bash
+> xattr -cr "/Applications/Super Kafka.app"
+> ```
+
 ## Configuration
 
 On first launch the cluster list is empty. Click **+ Add Cluster** in the sidebar dropdown (or open the Cluster page) to add one. Cluster metadata is saved to the system application data directory:

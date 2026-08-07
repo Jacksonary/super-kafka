@@ -360,7 +360,11 @@ export default function TopicDetail() {
               key: "consumer-groups",
               label: "Consumer Groups",
               children: (
-                <TopicConsumerGroups clusterId={currentClusterId} topic={topicName} />
+                <TopicConsumerGroups
+                  clusterId={currentClusterId}
+                  topic={topicName}
+                  partitionCount={detail?.partitions.length}
+                />
               ),
             },
           ]}

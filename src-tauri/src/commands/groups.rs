@@ -202,6 +202,23 @@ pub async fn delete_consumer_group(
     Ok(json!({ "ok": true }))
 }
 
+/// `fetch_watermarks` with the error propagated instead of swallowed.
+///
+/// Silently substituting `(0, 0)` on failure would commit offset 0 as `latest`
+/// — the opposite of what the caller asked for — or push a consumer behind the
+/// log start on a topic whose earliest offset is not 0. A reset that fails
+/// loudly is always better than one that commits the wrong position.
+fn fetch_watermarks_strict(
+    consumer: &BaseConsumer,
+    topic: &str,
+    partition: i32,
+    timeout: Duration,
+) -> Result<(i64, i64), String> {
+    consumer
+        .fetch_watermarks(topic, partition, timeout)
+        .map_err(|e| format!("[KAFKA-WATERMARKS] partition {partition}: {e}"))
+}
+
 #[tauri::command]
 pub async fn reset_offset(
     state: State<'_, AppState>,
@@ -252,6 +269,16 @@ pub async fn reset_offset(
             .iter()
             .find(|t| t.name() == req.topic)
             .ok_or_else(|| format!("[KAFKA] topic `{}` not found", req.topic))?;
+        // A deleted or not-yet-propagated topic still comes back as an entry, just
+        // with an error and no partitions. Without this the "no partitions" guard
+        // below fires and sends the operator hunting for a partition problem on a
+        // topic that simply is not there.
+        if let Some(err) = topic_meta.error() {
+            return Err(format!(
+                "[KAFKA-METADATA] topic `{}`: {:?}",
+                req.topic, err
+            ));
+        }
 
         // Target a single partition if requested, otherwise every partition.
         let target_parts: Vec<i32> = match req.partition {
@@ -267,41 +294,198 @@ pub async fn reset_offset(
             None => topic_meta.partitions().iter().map(|tp| tp.id()).collect(),
         };
 
+        // A commit over an empty TPL succeeds and would be reported as a clean
+        // reset, so refuse rather than claim to have moved nothing.
+        if target_parts.is_empty() {
+            return Err(format!(
+                "[KAFKA-RESET] topic `{}` has no partitions to reset",
+                req.topic
+            ));
+        }
+        // Captured before the loop below consumes `target_parts`.
+        let target_count = target_parts.len();
+
+        // Resetting offsets is destructive, so never guess at the strategy.
+        // `api.ts` hand-maps the frontend names (`to_offset` -> `specific`,
+        // `to_timestamp` -> `timestamp`) while `earliest`/`latest` pass through
+        // untouched; if that mapping ever drifts, defaulting to `earliest` here
+        // would rewind every partition to the log start and report success.
         let strategy = req
             .strategy
             .get("type")
             .and_then(|v| v.as_str())
-            .unwrap_or("earliest");
+            .ok_or_else(|| "[KAFKA-RESET] strategy is missing a `type` field".to_string())?;
 
         let mut tpl = TopicPartitionList::new();
-        for pid in target_parts {
-            let (low, high) = consumer
-                .fetch_watermarks(&req.topic, pid, timeout)
-                .unwrap_or((0, 0));
-            let offset = match strategy {
-                "earliest" => Offset::Offset(low),
-                "latest" => Offset::Offset(high),
-                "specific" => {
-                    let off = req
-                        .strategy
-                        .get("offset")
-                        .and_then(|v| v.as_i64())
-                        .ok_or_else(|| "[KAFKA] specific requires `offset`".to_string())?;
-                    Offset::Offset(off)
-                }
-                "timestamp" => {
-                    return Err("[KAFKA-RESET] timestamp-based reset is not yet supported".to_string());
-                }
-                _ => Offset::Offset(low),
-            };
-            tpl.add_partition_offset(&req.topic, pid, offset)
-                .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+        // Human-readable detail for the positions we could not honour verbatim.
+        let mut warnings: Vec<String> = Vec::new();
+        // Counted separately from `warnings` and from each other: a broker that
+        // could not answer, data that aged out, and "nothing after that time" call
+        // for different wording, and an empty partition warrants none at all. A
+        // single counter made the dialog contradict its own detail lines.
+        let mut fell_back = 0usize;
+        let mut unresolved = 0usize;
+        let mut aged_out = 0usize;
+        let mut clamped_count = 0usize;
+
+        if strategy == "timestamp" {
+            let ts_ms = req
+                .strategy
+                .get("timestamp")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| "[KAFKA] timestamp strategy requires `timestamp` field".to_string())?;
+            if ts_ms < 0 {
+                return Err("[KAFKA] timestamp must be a non-negative unix millisecond value".to_string());
+            }
+
+            // Build a TPL with the timestamp as the "offset" for each partition,
+            // then resolve to actual offsets in a single broker round-trip.
+            let mut ts_tpl = TopicPartitionList::new();
+            for &pid in &target_parts {
+                ts_tpl
+                    .add_partition_offset(&req.topic, pid, Offset::Offset(ts_ms))
+                    .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+            }
+            let resolved = consumer
+                .offsets_for_times(ts_tpl, timeout)
+                .map_err(|e| format!("[KAFKA-TIMESTAMP] offsets_for_times: {e}"))?;
+
+            for &pid in &target_parts {
+                let (low, high) = fetch_watermarks_strict(&consumer, &req.topic, pid, timeout)?;
+                let elem = resolved.find_partition(&req.topic, pid);
+                let elem_err = elem.as_ref().and_then(|e| e.error().err());
+                // Treat a negative sentinel the same as an absent value: both mean
+                // "the broker returned no position", however rdkafka maps the raw -1.
+                let candidate = elem.and_then(|e| e.offset().to_raw()).filter(|&o| o >= 0);
+
+                // Four outcomes, each meaning something different to the operator.
+                // Collapsing them into one counter produced dialogs that contradicted
+                // their own detail lines, so keep them apart.
+                let offset = if low > high {
+                    // Mid-compaction / mid-leader-change: the range is unusable and
+                    // committing `high` would sit below the log start.
+                    unresolved += 1;
+                    warnings.push(format!(
+                        "partition {pid}: log range [{low}, {high}] is inconsistent (compaction or leader change in flight) — reset to the log start ({low})"
+                    ));
+                    Offset::Offset(low)
+                } else if let Some(err) = elem_err {
+                    unresolved += 1;
+                    warnings.push(format!(
+                        "partition {pid}: could not resolve the timestamp ({err}) — reset to latest ({high})"
+                    ));
+                    Offset::Offset(high)
+                } else if let Some(o) = candidate {
+                    if o > high {
+                        // librdkafka leaves partitions it could not query holding the
+                        // timestamp we passed in, which lands far above the log end.
+                        unresolved += 1;
+                        warnings.push(format!(
+                            "partition {pid}: the broker returned no position for the requested time — reset to latest ({high})"
+                        ));
+                        Offset::Offset(high)
+                    } else if o < low {
+                        // Retention deleted that segment between the lookup and the
+                        // watermark read. The oldest surviving message is the closest
+                        // we can honour — and it is the same side of the log the user
+                        // asked for, unlike jumping to the end.
+                        aged_out += 1;
+                        warnings.push(format!(
+                            "partition {pid}: messages from that time have already been deleted by retention — reset to the oldest available offset ({low})"
+                        ));
+                        Offset::Offset(low)
+                    } else {
+                        Offset::Offset(o)
+                    }
+                } else {
+                    // The broker answered: nothing at or after that timestamp.
+                    if low < high {
+                        fell_back += 1;
+                        warnings.push(format!(
+                            "partition {pid}: no message at or after the requested time — reset to latest ({high})"
+                        ));
+                    }
+                    // An empty partition (low == high) has exactly one valid position
+                    // and it is the one we commit, so there is nothing to report —
+                    // counting it would raise a warning with no evidence behind it.
+                    Offset::Offset(high)
+                };
+                tpl.add_partition_offset(&req.topic, pid, offset)
+                    .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+            }
+        } else {
+            for pid in target_parts {
+                let (low, high) = fetch_watermarks_strict(&consumer, &req.topic, pid, timeout)?;
+                let offset = match strategy {
+                    "earliest" => Offset::Offset(low),
+                    "latest" => Offset::Offset(high),
+                    "specific" => {
+                        let off = req
+                            .strategy
+                            .get("offset")
+                            .and_then(|v| v.as_i64())
+                            .ok_or_else(|| "[KAFKA] specific requires `offset`".to_string())?;
+                        // A partition mid-compaction can report low > high, which
+                        // would make clamp() panic — normalize to an empty range.
+                        let (lo, hi) = if low > high { (high, high) } else { (low, high) };
+                        let clamped = off.clamp(lo, hi);
+                        if clamped != off {
+                            clamped_count += 1;
+                            warnings.push(format!(
+                                "partition {pid}: offset {off} is outside the log range [{lo}, {hi}] — committed {clamped} instead"
+                            ));
+                        }
+                        Offset::Offset(clamped)
+                    }
+                    other => {
+                        return Err(format!(
+                            "[KAFKA-RESET] unknown strategy `{other}` — expected one of earliest, latest, specific, timestamp"
+                        ))
+                    }
+                };
+                tpl.add_partition_offset(&req.topic, pid, offset)
+                    .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+            }
         }
 
         consumer
             .commit(&tpl, rdkafka::consumer::CommitMode::Sync)
-            .map_err(|e| format!("[KAFKA-COMMIT] {e}"))?;
-        Ok(json!({ "ok": true }))
+            .map_err(|e| {
+                let raw = e.to_string();
+                // A group whose members the coordinator can still see rejects a
+                // commit from a non-member. The classic coordinator answers
+                // ILLEGAL_GENERATION, the KIP-848 one UNKNOWN_MEMBER_ID; either
+                // way the actionable advice is the same, and the raw broker text
+                // reads like a transient fault the operator would just retry.
+                let looks_like_active_members = raw.contains("Unknown member id")
+                    || raw.contains("UNKNOWN_MEMBER_ID")
+                    || raw.contains("Illegal generation")
+                    || raw.contains("ILLEGAL_GENERATION")
+                    || raw.contains("Rebalance in progress")
+                    || raw.contains("REBALANCE_IN_PROGRESS");
+                if looks_like_active_members {
+                    format!(
+                        "[KAFKA-COMMIT] group `{}` still has active members — stop all its consumers, then retry ({raw})",
+                        req.group_id
+                    )
+                } else {
+                    // The commit is one request covering every partition, but a
+                    // partial application is possible (e.g. coordinator moved
+                    // mid-flight), so don't imply nothing changed.
+                    format!(
+                        "[KAFKA-COMMIT] {raw} — some partitions may already have been committed; refresh and re-check the offsets before retrying"
+                    )
+                }
+            })?;
+        Ok(json!({
+            "ok": true,
+            "partitions": target_count,
+            "fell_back": fell_back,
+            "unresolved": unresolved,
+            "aged_out": aged_out,
+            "clamped": clamped_count,
+            "warnings": warnings,
+        }))
     })
     .await
     .map_err(|e| format!("[RUNTIME] join: {e}"))?
@@ -310,6 +494,12 @@ pub async fn reset_offset(
 /// Fetch a group's committed offsets and lag for every partition of `topic`.
 /// Works for Empty groups too: committed offsets are read from
 /// __consumer_offsets, not from live member assignment.
+///
+/// A failed watermark read degrades that one row to `(0, 0)` rather than failing
+/// the whole call: one slow partition must not blank the table and make the other
+/// partitions unresettable. The offsets here are a display value and a best-effort
+/// hint for the reset dialog — the dialog ignores an unusable range, and
+/// `reset_offset` clamps authoritatively against watermarks it fetches itself.
 fn fetch_group_topic_lag(
     cluster: &ClusterConfig,
     password: Option<&str>,
@@ -354,7 +544,9 @@ fn fetch_group_topic_lag(
     use rayon::prelude::*;
     let mut out: Vec<PartitionLag> = elems.par_iter()
         .map(|&(partition, current)| {
-            let (low, high) = consumer.fetch_watermarks(topic, partition, timeout).unwrap_or((0, 0));
+            let (low, high) = consumer
+                .fetch_watermarks(topic, partition, timeout)
+                .unwrap_or((0, 0));
             let lag = if current < 0 { high } else { (high - current).max(0) };
             PartitionLag { partition, start_offset: low, current_offset: current, log_end_offset: high, lag }
         })

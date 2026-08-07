@@ -218,7 +218,9 @@ export interface TopicConsumerGroup {
 export type ResetOffsetStrategy =
   | { type: "earliest" }
   | { type: "latest" }
-  | { type: "to_offset"; partition: number; offset: number }
+  // Partition targeting lives in ResetOffsetRequest.partition, not here — a
+  // specific offset is only meaningful for a single partition.
+  | { type: "to_offset"; offset: number }
   | { type: "to_timestamp"; timestamp_ms: number };
 
 export interface ResetOffsetRequest {

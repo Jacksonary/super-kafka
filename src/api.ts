@@ -52,26 +52,24 @@ function mapFetchMessagesResponse(raw: T.FetchMessagesResponse): T.FetchMessages
 
 function toBackendResetOffsetRequest(req: T.ResetOffsetRequest): UnknownRecord {
   const s = req.strategy;
-  if (s.type === "to_offset") {
-    return {
-      ...req,
-      strategy: {
-        type: "specific",
-        offset: s.offset,
-        partition: s.partition,
-      },
-    };
+  switch (s.type) {
+    case "earliest":
+    case "latest":
+      return { ...req, strategy: { type: s.type } };
+    case "to_offset":
+      // The backend targets partitions via the top-level `partition` field;
+      // it never reads a partition off the strategy object.
+      return { ...req, strategy: { type: "specific", offset: s.offset } };
+    case "to_timestamp":
+      return { ...req, strategy: { type: "timestamp", timestamp: s.timestamp_ms } };
+    default: {
+      // Exhaustiveness guard: adding a ResetOffsetStrategy variant without
+      // mapping it here becomes a compile error instead of reaching the
+      // backend untranslated (which would be rejected as an unknown strategy).
+      const unmapped: never = s;
+      throw new Error(`unmapped reset strategy: ${JSON.stringify(unmapped)}`);
+    }
   }
-  if (s.type === "to_timestamp") {
-    return {
-      ...req,
-      strategy: {
-        type: "timestamp",
-        timestamp: s.timestamp_ms,
-      },
-    };
-  }
-  return req as unknown as UnknownRecord;
 }
 
 function toBackendFetchMode(mode: T.FetchMode): UnknownRecord {
@@ -249,10 +247,31 @@ export const api = {
   },
 
   async resetOffset(req: T.ResetOffsetRequest) {
-    const r = await tauriInvoke<{ ok?: boolean }>("reset_offset", {
-      req: toBackendResetOffsetRequest(req),
-    });
-    return { ok: r.ok ?? true };
+    const r = await tauriInvoke<{
+      ok?: boolean;
+      partitions?: number;
+      fell_back?: number;
+      unresolved?: number;
+      aged_out?: number;
+      clamped?: number;
+      warnings?: string[];
+    }>("reset_offset", { req: toBackendResetOffsetRequest(req) });
+    // `partitions` is how many were targeted. The rest count partitions that did
+    // not land on the requested position, split by cause because each needs
+    // different wording: the broker could not answer (`unresolved`), the data had
+    // already been deleted (`agedOut`), there was nothing at or after the
+    // timestamp (`fellBack`), or the offset was pulled into range (`clamped`).
+    // They are counted independently of `warnings`, which omits cases with
+    // nothing useful to say — an empty partition has only one position to take.
+    return {
+      ok: r.ok ?? true,
+      partitions: r.partitions ?? 0,
+      fellBack: r.fell_back ?? 0,
+      unresolved: r.unresolved ?? 0,
+      agedOut: r.aged_out ?? 0,
+      clamped: r.clamped ?? 0,
+      warnings: r.warnings ?? [],
+    };
   },
 
   async listTopicConsumerGroups(clusterId: string, topic: string) {

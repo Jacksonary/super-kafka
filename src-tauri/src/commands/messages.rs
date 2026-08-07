@@ -40,6 +40,10 @@ pub async fn fetch_messages(
             format!("super-kafka-fetch-{}", uuid::Uuid::new_v4()),
         );
         cfg.set("enable.auto.commit", "false");
+        // Message *content* views stay read_committed so the browser shows what a
+        // real consumer would see; only watermark reporting uses read_uncommitted
+        // (see build_client_config).
+        cfg.set("isolation.level", "read_committed");
 
         let consumer: BaseConsumer = cfg
             .create()
@@ -85,12 +89,13 @@ pub async fn fetch_messages(
                 return Ok(FetchMessagesResponse { messages: vec![], total_fetched: 0, has_more: false });
             }
 
-            for (p, start_offset) in &timed_offsets {
-                tpl.add_partition_offset(&req.topic, *p, Offset::Offset(*start_offset))
+            for &(p, start_offset, high) in &timed_offsets {
+                tpl.add_partition_offset(&req.topic, p, Offset::Offset(start_offset))
                     .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
-                let (_, high) = consumer.fetch_watermarks(&req.topic, *p, timeout).unwrap_or((0, 0));
-                if high > *start_offset {
-                    partition_high.insert(*p, high);
+                // `high` comes back validated from the resolver, which already paid
+                // for the watermark round-trip.
+                if high > start_offset {
+                    partition_high.insert(p, high);
                 }
             }
         } else {
@@ -195,13 +200,21 @@ pub async fn fetch_messages(
     .map_err(|e| format!("[RUNTIME] join: {e}"))?
 }
 
+/// Resolve a timestamp to a starting offset per partition.
+///
+/// Returns `(partition, start_offset, high_watermark)` for each partition that
+/// resolved to a real position. Partitions that did not resolve are omitted
+/// rather than seeked to a bogus offset: librdkafka only overwrites the
+/// partitions it could actually query, so an unresolved element still holds the
+/// timestamp we passed in — and may carry no error at all. Seeking there lands
+/// far past the log end and silently drops that partition from the results.
 fn resolve_offsets_for_timestamp(
     consumer: &BaseConsumer,
     topic: &str,
     partitions: &[i32],
     timestamp_ms: i64,
     timeout: Duration,
-) -> Result<Vec<(i32, i64)>, String> {
+) -> Result<Vec<(i32, i64, i64)>, String> {
     let mut tpl = TopicPartitionList::new();
     for &p in partitions {
         tpl.add_partition_offset(topic, p, Offset::Offset(timestamp_ms))
@@ -210,12 +223,33 @@ fn resolve_offsets_for_timestamp(
     let result = consumer
         .offsets_for_times(tpl, timeout)
         .map_err(|e| format!("[KAFKA-TIMESTAMP] offsets_for_times: {e}"))?;
+
     let mut out = Vec::new();
     for elem in result.elements() {
-        match elem.offset() {
-            Offset::Offset(o) => out.push((elem.partition(), o)),
-            _ => {}
+        if elem.error().is_err() {
+            continue;
         }
+        // A negative sentinel means the broker had nothing at or after the
+        // timestamp, however rdkafka maps the raw value.
+        let Some(offset) = elem.offset().to_raw().filter(|&o| o >= 0) else {
+            continue;
+        };
+        let partition = elem.partition();
+        // Not `unwrap_or((0, 0))`: that would make `start > high` true for any real
+        // offset and silently drop the partition from the results — the very
+        // failure this validation exists to prevent. The non-timestamp branch of
+        // `fetch_messages` propagates this error too.
+        let (low, high) = consumer
+            .fetch_watermarks(topic, partition, timeout)
+            .map_err(|e| format!("[KAFKA-WATERMARK] partition {partition}: {e}"))?;
+        // Retention may have deleted that segment since the lookup; for a browse
+        // the oldest surviving message is the closest we can honour.
+        let start = offset.max(low);
+        if start > high {
+            // Residual timestamp, or the whole range is past the end.
+            continue;
+        }
+        out.push((partition, start, high));
     }
     Ok(out)
 }
@@ -412,6 +446,10 @@ pub async fn start_live_consume(
         let mut cfg = build_client_config(&cluster, password.as_deref());
         cfg.set("group.id", format!("super-kafka-live-{}", uuid::Uuid::new_v4()));
         cfg.set("enable.auto.commit", "false");
+        // Message *content* views stay read_committed so the browser shows what a
+        // real consumer would see; only watermark reporting uses read_uncommitted
+        // (see build_client_config).
+        cfg.set("isolation.level", "read_committed");
 
         let consumer: BaseConsumer = match cfg.create() {
             Ok(c) => c,
@@ -586,6 +624,10 @@ pub async fn export_messages(
             format!("super-kafka-export-{}", uuid::Uuid::new_v4()),
         );
         cfg.set("enable.auto.commit", "false");
+        // Message *content* views stay read_committed so the browser shows what a
+        // real consumer would see; only watermark reporting uses read_uncommitted
+        // (see build_client_config).
+        cfg.set("isolation.level", "read_committed");
 
         let consumer: BaseConsumer = cfg
             .create()
@@ -620,12 +662,13 @@ pub async fn export_messages(
             let timed_offsets = resolve_offsets_for_timestamp(
                 &consumer, &req.topic, &target_partitions, timestamp_ms, timeout,
             )?;
-            for (p, start_offset) in &timed_offsets {
-                tpl.add_partition_offset(&req.topic, *p, Offset::Offset(*start_offset))
+            for &(p, start_offset, high) in &timed_offsets {
+                tpl.add_partition_offset(&req.topic, p, Offset::Offset(start_offset))
                     .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
-                let (_, high) = consumer.fetch_watermarks(&req.topic, *p, timeout).unwrap_or((0, 0));
-                if high > *start_offset {
-                    partition_high.insert(*p, high);
+                // `high` comes back validated from the resolver, which already paid
+                // for the watermark round-trip.
+                if high > start_offset {
+                    partition_high.insert(p, high);
                 }
             }
         } else {

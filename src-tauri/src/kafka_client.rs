@@ -21,6 +21,20 @@ pub fn build_client_config(cluster: &ClusterConfig, password: Option<&str>) -> C
         (cluster.request_timeout_ms + 5_000).to_string(),
     );
     cfg.set("client.id", format!("super-kafka/{}", cluster.id));
+    // librdkafka defaults this to read_committed (unlike the Java client), which
+    // makes fetch_watermarks report the Last Stable Offset instead of the high
+    // watermark. Every watermark we surface is a "log end offset" in the sense
+    // `kafka-consumer-groups.sh` uses, and the offset-reset path clamps against
+    // it, so report the high watermark. Consumers that read message *content*
+    // pin read_committed themselves to keep showing what a consumer would see.
+    //
+    // DO NOT REMOVE: librdkafka logs "isolation.level is a consumer property and
+    // will be ignored by this producer instance" for the AdminClient and producer
+    // handles built from this config. That warning is misleading —
+    // rd_kafka_ListOffsetsRequest writes rk_conf.isolation_level regardless of
+    // handle type, so this is exactly what makes the Partitions tab agree with
+    // the Consumer Groups tab. Deleting it silently reverts that to the LSO.
+    cfg.set("isolation.level", "read_uncommitted");
 
     let protocol = cluster.security_protocol.to_uppercase();
     cfg.set("security.protocol", &protocol);

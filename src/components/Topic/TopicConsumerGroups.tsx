@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Empty,
+  Space,
   Spin,
   Table,
   Tag,
@@ -32,9 +33,11 @@ const STATE_COLORS: Record<ConsumerGroupState, string> = {
 interface Props {
   clusterId: string;
   topic: string;
+  /** Total partitions of the topic — surfaced in the reset confirm step. */
+  partitionCount?: number;
 }
 
-export default function TopicConsumerGroups({ clusterId, topic }: Props) {
+export default function TopicConsumerGroups({ clusterId, topic, partitionCount }: Props) {
   const { message } = AntdApp.useApp();
   const [groups, setGroups] = useState<TopicConsumerGroup[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
@@ -43,7 +46,9 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
   const [loadingParts, setLoadingParts] = useState<Record<string, boolean>>({});
   const [resetTarget, setResetTarget] = useState<{
     group: TopicConsumerGroup;
-    partition: number;
+    /** undefined = reset all partitions */
+    partition?: number;
+    partitionWatermark?: { start_offset: number; log_end_offset: number };
   } | null>(null);
 
   const refreshGroups = useCallback(async () => {
@@ -51,7 +56,9 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
     try {
       setGroups(await api.listTopicConsumerGroups(clusterId, topic));
     } catch (e) {
-      message.error(String(e));
+      // Prefixed so a refresh failure right after a reset can't be mistaken for
+      // the reset itself having failed.
+      message.error(`Failed to refresh consumer groups: ${String(e)}`);
     } finally {
       setLoadingGroups(false);
     }
@@ -75,7 +82,7 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
         const lag = await api.getTopicGroupPartitionLag(clusterId, topic, groupId);
         setPartitions((prev) => ({ ...prev, [groupId]: lag }));
       } catch (e) {
-        message.error(String(e));
+        message.error(`Failed to refresh partition lag: ${String(e)}`);
       } finally {
         setLoadingParts((prev) => ({ ...prev, [groupId]: false }));
       }
@@ -116,22 +123,46 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
     {
       title: "",
       key: "action",
-      width: 60,
+      width: 120,
       align: "center",
-      render: (_: unknown, g: TopicConsumerGroup) => (
-        <Tooltip title="Refresh this group">
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={loadingParts[g.group_id] ?? false}
-            onClick={(e) => {
-              e.stopPropagation();
-              void refreshGroups();
-              void loadPartitions(g.group_id);
-            }}
-          />
-        </Tooltip>
-      ),
+      render: (_: unknown, g: TopicConsumerGroup) => {
+        const canReset = g.state === "Empty" || g.state === "Dead";
+        return (
+          <Space size={4} onClick={(e) => e.stopPropagation()}>
+            <Tooltip
+              title={
+                canReset
+                  ? "Reset all partitions"
+                  : "Group must be Empty/Dead to reset — stop its consumers first"
+              }
+            >
+              {/* A disabled <button> swallows mouse events, so the Tooltip needs
+                  a live wrapper to hang its listeners on. */}
+              <span style={{ display: "inline-block", cursor: canReset ? undefined : "not-allowed" }}>
+                <Button
+                  size="small"
+                  danger
+                  disabled={!canReset}
+                  onClick={() => setResetTarget({ group: g })}
+                >
+                  Reset All
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title="Refresh this group">
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={loadingParts[g.group_id] ?? false}
+                onClick={() => {
+                  void refreshGroups();
+                  void loadPartitions(g.group_id);
+                }}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -189,13 +220,25 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
           <Tooltip
             title={canReset ? "" : "Group must be Empty/Dead to reset — stop its consumers first"}
           >
-            <Button
-              size="small"
-              disabled={!canReset}
-              onClick={() => setResetTarget({ group, partition: p.partition })}
-            >
-              Reset
-            </Button>
+            <span style={{ display: "inline-block", cursor: canReset ? undefined : "not-allowed" }}>
+              <Button
+                size="small"
+                danger
+                disabled={!canReset}
+                onClick={() =>
+                  setResetTarget({
+                    group,
+                    partition: p.partition,
+                    partitionWatermark: {
+                      start_offset: p.start_offset,
+                      log_end_offset: p.log_end_offset,
+                    },
+                  })
+                }
+              >
+                Reset
+              </Button>
+            </span>
           </Tooltip>
         ),
       },
@@ -269,6 +312,8 @@ export default function TopicConsumerGroups({ clusterId, topic }: Props) {
         groupId={resetTarget?.group.group_id ?? ""}
         topics={[topic]}
         fixedPartition={resetTarget?.partition}
+        partitionCount={partitionCount}
+        partitionWatermark={resetTarget?.partitionWatermark}
         onClose={() => {
           const gid = resetTarget?.group.group_id;
           setResetTarget(null);

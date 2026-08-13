@@ -129,7 +129,6 @@ export default function MainLayout() {
     downloadingRef.current = true;
     const upd = updateState.update;
     const version = updateState.version;
-    pendingUpdateRef.current = upd;
     let total = 0;
     let downloaded = 0;
     setUpdateState({ status: "downloading", progress: 0 });
@@ -142,6 +141,8 @@ export default function MainLayout() {
           if (total > 0) setUpdateState({ status: "downloading", progress: Math.round((downloaded / total) * 100) });
         }
       });
+      // Only set the ref AFTER download succeeds, so install() is never called on an undownloaded object.
+      pendingUpdateRef.current = upd;
       readyVersionRef.current = version;
       setUpdateState({ status: "ready" });
       showRestartModal(version);
@@ -163,15 +164,16 @@ export default function MainLayout() {
     try { pending = localStorage.getItem(PENDING_UPDATE_KEY) === "1"; } catch { /* ignore */ }
     if (!pending) return;
 
+    // Mark as downloading so the normal update banner doesn't trigger a parallel download.
+    setUpdateState({ status: "downloading", progress: 0 });
     void (async () => {
       try {
         const upd = await check();
         if (!upd) {
-          // Already up to date (e.g. installed elsewhere) — clear and move on.
           try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+          setUpdateState({ status: "idle" } as never);
           return;
         }
-        setUpdateState({ status: "downloading", progress: 0 });
         let total = 0;
         let downloaded = 0;
         await upd.download((evt) => {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import logoUrl from "../../assets/logo.png";
-import { Alert, Button, Layout, Menu, Modal, Progress, Select, Tooltip, Typography, message as antMessage } from "antd";
+import { Alert, Button, Dropdown, Layout, Menu, Modal, Progress, Tooltip, Typography, message as antMessage } from "antd";
+import { useClusterOrder } from "../../hooks/useClusterOrder";
 import {
   UnorderedListOutlined,
   TeamOutlined,
@@ -8,10 +9,11 @@ import {
   SendOutlined,
   GithubOutlined,
   ReloadOutlined,
-  LeftOutlined,
-  RightOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   SettingOutlined,
   PlusOutlined,
+  DownOutlined,
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -63,6 +65,7 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { clusters, currentClusterId, setCurrentClusterId, currentSummary, connecting, refreshCurrentSummary, requestAddCluster } = useClusterStore();
+  const { applySortOrder } = useClusterOrder();
   const { token } = theme.useToken();
   const { config: appConfig } = useSettings();
   const isDark = appConfig.theme !== "light";
@@ -204,6 +207,37 @@ export default function MainLayout() {
     return "#8c8c8c";
   }, [currentSummary?.status, connecting]);
 
+  const [clusterDropdownOpen, setClusterDropdownOpen] = useState(false);
+
+  const currentCluster = useMemo(
+    () => clusters.find((c) => c.id === currentClusterId) ?? null,
+    [clusters, currentClusterId],
+  );
+
+  const clusterDropdownItems = useMemo(() => [
+    ...applySortOrder(clusters).map((c) => ({ key: c.id, label: c.name })),
+    { type: "divider" as const },
+    {
+      key: "__add",
+      label: (
+        <span style={{ color: token.colorPrimary }}>
+          <PlusOutlined style={{ marginRight: 6 }} />
+          Add Cluster
+        </span>
+      ),
+    },
+  ], [clusters, applySortOrder, token.colorPrimary]);
+
+  const handleClusterMenuClick = useCallback(({ key }: { key: string }) => {
+    if (key === "__add") {
+      navigate("/cluster");
+      requestAddCluster();
+      return;
+    }
+    setCurrentClusterId(key);
+    navigate(selectedKey);
+  }, [setCurrentClusterId, navigate, selectedKey, requestAddCluster]);
+
   return (
     <Layout style={{ height: "100vh", overflow: "hidden" }}>
       <Sider
@@ -268,7 +302,7 @@ export default function MainLayout() {
                   e.currentTarget.style.background = "transparent";
                 }}
               >
-                <LeftOutlined style={{ fontSize: 12 }} />
+                <MenuFoldOutlined style={{ fontSize: 14 }} />
               </div>
             </Tooltip>
           )}
@@ -276,66 +310,69 @@ export default function MainLayout() {
 
         {/* ── Cluster selector ── */}
         {!collapsed && (
-          <div style={{ padding: 12, borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
-            <Select
-              value={currentClusterId ?? undefined}
-              onChange={(v) => { setCurrentClusterId(v); navigate(selectedKey); }}
-              placeholder="Select a cluster"
-              style={{ width: "100%" }}
-              options={clusters.map((c) => ({ value: c.id, label: c.name }))}
-              notFoundContent={
-                <span style={{ color: token.colorTextTertiary }}>No clusters configured.</span>
-              }
-              dropdownRender={(menu) => (
-                <>
-                  {menu}
-                  <div
+          <div style={{ padding: 8, borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
+            <Dropdown
+              menu={{ items: clusterDropdownItems, onClick: handleClusterMenuClick, selectedKeys: currentClusterId ? [currentClusterId] : [] }}
+              trigger={["click"]}
+              open={clusterDropdownOpen}
+              onOpenChange={setClusterDropdownOpen}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  transition: "background 0.15s",
+                  userSelect: "none",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = hoverBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
+                  <span
                     style={{
-                      borderTop: `1px solid ${token.colorBorderSecondary}`,
-                      padding: "6px 8px",
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: statusColor,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: token.colorText,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    <Button
-                      type="link"
-                      size="small"
-                      block
-                      icon={<PlusOutlined />}
-                      style={{ textAlign: "left", paddingLeft: 4 }}
-                      onClick={() => {
-                        // 先跳到 Cluster 页（保证 Cluster 组件已 mount），再请求弹窗。
-                        // requestAddCluster 通过 store 计数器变化触发 Cluster 页 useEffect 打开 Modal。
-                        navigate("/cluster");
-                        requestAddCluster();
-                      }}
-                    >
-                      Add Cluster
-                    </Button>
-                  </div>
-                </>
-              )}
-              labelRender={({ label }) => (
-                <Text
+                    {currentCluster?.name ?? "Select a cluster"}
+                  </Text>
+                </div>
+                <DownOutlined
                   style={{
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: statusColor,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    display: "block",
+                    fontSize: 10,
+                    color: token.colorTextQuaternary,
+                    flexShrink: 0,
+                    transition: "transform 0.2s",
+                    transform: clusterDropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
                   }}
-                >
-                  {label}
-                </Text>
-              )}
-            />
-            {/* Error and connecting states shown below the Select, not inside it */}
+                />
+              </div>
+            </Dropdown>
+            {/* Error and connecting states shown below the selector */}
             {!connecting && currentSummary?.status === "error" && currentSummary.error_message && (
               <Tooltip title={currentSummary.error_message}>
                 <Text
                   style={{
                     display: "block",
-                    marginTop: 4,
+                    marginTop: 2,
+                    paddingLeft: 10,
                     fontSize: 11,
                     color: "#ff4d4f",
                     overflow: "hidden",
@@ -348,7 +385,7 @@ export default function MainLayout() {
               </Tooltip>
             )}
             {connecting && (
-              <Text style={{ display: "block", marginTop: 4, fontSize: 11, color: "#faad14" }}>
+              <Text style={{ display: "block", marginTop: 2, paddingLeft: 10, fontSize: 11, color: "#faad14" }}>
                 Connecting...
               </Text>
             )}
@@ -381,18 +418,7 @@ export default function MainLayout() {
                 e.currentTarget.style.background = "transparent";
               }}
             >
-              <RightOutlined style={{ fontSize: 12 }} />
-              <div
-                style={{
-                  position: "absolute",
-                  top: 8,
-                  right: 8,
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: statusColor,
-                }}
-              />
+              <MenuUnfoldOutlined style={{ fontSize: 14 }} />
             </div>
           </Tooltip>
         )}

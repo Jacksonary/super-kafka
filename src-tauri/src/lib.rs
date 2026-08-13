@@ -71,6 +71,7 @@ pub fn run() {
             commands::clusters::list_clusters,
             commands::clusters::save_cluster,
             commands::clusters::delete_cluster,
+            commands::clusters::reorder_clusters,
             commands::clusters::test_connection,
             commands::clusters::save_sasl_password,
             commands::clusters::get_cluster_summary,

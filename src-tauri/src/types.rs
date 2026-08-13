@@ -15,6 +15,8 @@ pub struct ClusterConfig {
     #[serde(default = "default_timeout")]
     pub request_timeout_ms: u32,
     pub created_at: u64,
+    #[serde(default)]
+    pub sort_order: u64,
 }
 fn default_timeout() -> u32 {
     30_000

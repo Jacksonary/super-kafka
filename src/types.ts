@@ -27,6 +27,7 @@ export interface ClusterConfig {
   ssl_client_key_path: string | null;
   request_timeout_ms: number;       // default 30000
   created_at: number;               // unix timestamp ms
+  sort_order: number;               // 0 = unset, use created_at fallback
 }
 
 /** 前端展示用（含连接状态） */

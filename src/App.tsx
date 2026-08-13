@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { ConfigProvider, App as AntdApp, theme } from "antd";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import MainLayout from "./components/Layout/MainLayout";
 import { ClusterStoreProvider } from "./store/clusterStore";
 import { SettingsStoreProvider, useSettings } from "./store/settingsStore";
@@ -58,6 +59,11 @@ function ThemedApp() {
   // 渲染一帧，肉眼看到为蓝粗框闪现。
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = isDark ? "dark" : "light";
+    const win = getCurrentWindow();
+    void win.setTheme(isDark ? "dark" : "light");
+    void win.setBackgroundColor(isDark
+      ? { red: 13, green: 17, blue: 23, alpha: 255 }
+      : { red: 255, green: 255, blue: 255, alpha: 255 });
     if (firstRender.current) {
       firstRender.current = false;
       return;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Card,
@@ -10,38 +10,132 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleFilled } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, LinkOutlined, DisconnectOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api } from "../api";
 import type { ClusterConfig } from "../types";
 import { useClusterStore } from "../store/clusterStore";
+import { useClusterOrder } from "../hooks/useClusterOrder";
 import ClusterFormModal from "../components/Cluster/ClusterFormModal";
 
 const { Text } = Typography;
 
+interface SortableCardProps {
+  c: ClusterConfig;
+  active: boolean;
+  onNavigate: (id: string) => void;
+  onSetActive: (id: string) => void;
+  onEdit: (c: ClusterConfig) => void;
+  onDelete: (id: string) => void;
+}
+
+function SortableClusterCard({ c, active, onNavigate, onSetActive, onEdit, onDelete }: SortableCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id });
+
+  return (
+    <Card
+      ref={setNodeRef}
+      hoverable
+      size="small"
+      styles={{ body: { padding: 12, cursor: isDragging ? "grabbing" : "grab" } }}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+      }}
+      {...attributes}
+      {...listeners}
+      onClick={() => onNavigate(c.id)}
+    >
+      {/* row 1: name + actions */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 6,
+        }}
+      >
+        <Text strong ellipsis style={{ minWidth: 0, flex: 1 }}>
+          {c.name}
+        </Text>
+        <Space size={2} onClick={(e) => e.stopPropagation()}>
+          {active ? (
+              <Tooltip title="Active">
+                <Button type="text" size="small" icon={<LinkOutlined style={{ color: "#52c41a" }} />} />
+              </Tooltip>
+            ) : (
+              <Tooltip title="Set as active">
+                <Button type="text" size="small" icon={<DisconnectOutlined />} onClick={() => onSetActive(c.id)} />
+              </Tooltip>
+            )}
+          <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onEdit(c)} />
+          <Popconfirm
+            title="Delete this cluster?"
+            description="The credential in keychain will also be removed."
+            onConfirm={() => onDelete(c.id)}
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      </div>
+
+      {/* row 2: address */}
+      <Text
+        code
+        ellipsis={{ tooltip: c.bootstrap_servers }}
+        style={{ fontSize: 12, display: "block", marginBottom: 6 }}
+      >
+        {c.bootstrap_servers}
+      </Text>
+
+      {/* row 3: security protocol */}
+      <Tag style={{ marginInlineEnd: 0 }}>{c.security_protocol}</Tag>
+    </Card>
+  );
+}
+
 export default function Cluster() {
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
-  const { clusters, refreshClusters, currentClusterId, setCurrentClusterId, addClusterRequestId } = useClusterStore();
+  const { clusters, refreshClusters, currentClusterId, setCurrentClusterId, pendingAdd, consumeAddRequest } = useClusterStore();
+  const { applySortOrder, saveOrder } = useClusterOrder();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ClusterConfig | null>(null);
 
-  // 当外部（侧边栏 Add Cluster 入口）请求新增时，自动打开 Modal。
-  // 用 ref 跳过组件 mount 时的初始值，避免一打开 Cluster 页就弹窗。
-  const lastSeenAddRequest = useRef(addClusterRequestId);
   useEffect(() => {
-    if (addClusterRequestId === lastSeenAddRequest.current) return;
-    lastSeenAddRequest.current = addClusterRequestId;
+    if (!pendingAdd) return;
+    consumeAddRequest();
     setEditing(null);
     setModalOpen(true);
-  }, [addClusterRequestId]);
+  }, [pendingAdd, consumeAddRequest]);
 
-  // HashMap-backed list_configs returns an unstable order; sort by creation time
-  // so cards keep a stable, predictable order across restarts and edits.
-  const sortedClusters = useMemo(
-    () => [...clusters].sort((a, b) => a.created_at - b.created_at),
-    [clusters],
+  const sortedClusters = applySortOrder(clusters);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
+
+  async function handleDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    const oldIndex = sortedClusters.findIndex((c) => c.id === active.id);
+    const newIndex = sortedClusters.findIndex((c) => c.id === over.id);
+    const reordered = arrayMove(sortedClusters, oldIndex, newIndex);
+    await saveOrder(reordered.map((c) => c.id));
+    await refreshClusters();
+  }
 
   async function handleDelete(id: string) {
     try {
@@ -76,82 +170,33 @@ export default function Cluster() {
       {clusters.length === 0 ? (
         <Empty description="No clusters configured. Add one to get started." />
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-            gap: 12,
-          }}
-        >
-          {sortedClusters.map((c) => {
-            const active = c.id === currentClusterId;
-            return (
-              <Card
-                key={c.id}
-                hoverable
-                size="small"
-                styles={{ body: { padding: 12, cursor: "pointer" } }}
-                onClick={() => navigate(`/cluster/${encodeURIComponent(c.id)}`)}
-              >
-                {/* row 1: name + actions */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 6,
-                  }}
-                >
-                  <Text strong ellipsis style={{ minWidth: 0, flex: 1 }}>
-                    {c.name}
-                  </Text>
-                  <Space size={2} onClick={(e) => e.stopPropagation()}>
-                    {active ? (
-                      <Tag icon={<CheckCircleFilled />} color="success" style={{ marginInlineEnd: 0 }}>
-                        Active
-                      </Tag>
-                    ) : (
-                      <Tooltip title="Switch to this cluster">
-                        <Tag
-                          color="default"
-                          style={{ marginInlineEnd: 0, cursor: "pointer" }}
-                          onClick={() => setCurrentClusterId(c.id)}
-                        >
-                          Set active
-                        </Tag>
-                      </Tooltip>
-                    )}
-                    <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(c)} />
-                    <Popconfirm
-                      title="Delete this cluster?"
-                      description="The credential in keychain will also be removed."
-                      onConfirm={() => handleDelete(c.id)}
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                    </Popconfirm>
-                  </Space>
-                </div>
-
-                {/* row 2: address */}
-                <Text
-                  code
-                  ellipsis={{ tooltip: c.bootstrap_servers }}
-                  style={{ fontSize: 12, display: "block", marginBottom: 6 }}
-                >
-                  {c.bootstrap_servers}
-                </Text>
-
-                {/* row 3: security protocol */}
-                <Tag style={{ marginInlineEnd: 0 }}>{c.security_protocol}</Tag>
-              </Card>
-            );
-          })}
-        </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={sortedClusters.map((c) => c.id)} strategy={rectSortingStrategy}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {sortedClusters.map((c) => (
+                <SortableClusterCard
+                  key={c.id}
+                  c={c}
+                  active={c.id === currentClusterId}
+                  onNavigate={(id) => navigate(`/cluster/${encodeURIComponent(id)}`)}
+                  onSetActive={setCurrentClusterId}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       <ClusterFormModal
+        key={editing?.id ?? "__new__"}
         open={modalOpen}
         initialConfig={editing}
         onClose={() => setModalOpen(false)}

@@ -146,6 +146,24 @@ pub async fn delete_cluster(
 }
 
 #[tauri::command]
+pub async fn reorder_clusters(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let mut clusters = state.pool.list_configs();
+    for (i, id) in ids.iter().enumerate() {
+        if let Some(c) = clusters.iter_mut().find(|c| &c.id == id) {
+            c.sort_order = (i + 1) as u64;
+        }
+    }
+    config::save_clusters(&clusters)?;
+    for c in &clusters {
+        state.pool.upsert_config(c.clone());
+    }
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+#[tauri::command]
 pub async fn test_connection(
     config: ClusterConfig,
     password: Option<String>,

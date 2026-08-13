@@ -112,6 +112,11 @@ export const api = {
     return { ok: r.ok ?? true };
   },
 
+  async reorderClusters(ids: string[]) {
+    const r = await tauriInvoke<{ ok?: boolean }>("reorder_clusters", { ids });
+    return { ok: r.ok ?? true };
+  },
+
   async testConnection(config: T.ClusterConfig, password: string | null) {
     return tauriInvoke<T.TestConnectionResult>("test_connection", { config, password });
   },

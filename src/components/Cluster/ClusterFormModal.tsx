@@ -57,6 +57,7 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
   useEffect(() => {
     if (!open) return;
     setTestResult(null);
+    form.resetFields();
     if (initialConfig) {
       form.setFieldsValue({
         name: initialConfig.name,
@@ -72,7 +73,6 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
       });
       setSecurityProtocol(initialConfig.security_protocol);
     } else {
-      form.resetFields();
       form.setFieldsValue({
         security_protocol: "PLAINTEXT",
         request_timeout_ms: 30000,
@@ -103,6 +103,7 @@ export default function ClusterFormModal({ open, initialConfig, onClose, onSaved
       ssl_client_key_path: showSsl ? values.ssl_client_key_path || null : null,
       request_timeout_ms: values.request_timeout_ms ?? 30000,
       created_at: initialConfig?.created_at ?? Date.now(),
+      sort_order: initialConfig?.sort_order ?? 0,
     };
     return { config, password: values.sasl_password || null };
   }

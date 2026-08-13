@@ -12,9 +12,10 @@ interface ClusterStoreValue {
   currentSummary: ClusterSummary | null;
   refreshCurrentSummary: () => Promise<void>;
   connecting: boolean;
-  /** Counter that bumps when external callers want to open the Add Cluster modal on the Cluster page. */
-  addClusterRequestId: number;
+  /** Set to true when an external caller wants to open the Add Cluster modal. Consumed by the Cluster page on mount or update. */
+  pendingAdd: boolean;
   requestAddCluster: () => void;
+  consumeAddRequest: () => void;
 }
 
 const ClusterStoreContext = createContext<ClusterStoreValue | null>(null);
@@ -34,10 +35,14 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
   });
   const [currentSummary, setCurrentSummary] = useState<ClusterSummary | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [addClusterRequestId, setAddClusterRequestId] = useState(0);
+  const [pendingAdd, setPendingAdd] = useState(false);
 
   const requestAddCluster = useCallback(() => {
-    setAddClusterRequestId((n) => n + 1);
+    setPendingAdd(true);
+  }, []);
+
+  const consumeAddRequest = useCallback(() => {
+    setPendingAdd(false);
   }, []);
 
   const setCurrentClusterId = useCallback((id: string | null) => {
@@ -142,8 +147,9 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
     currentSummary,
     refreshCurrentSummary,
     connecting,
-    addClusterRequestId,
+    pendingAdd,
     requestAddCluster,
+    consumeAddRequest,
   };
 
   return (

@@ -284,7 +284,7 @@ export default function TopicDetail() {
                 <Card
                   size="small"
                   style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
-                  styles={{ body: { flex: 1, minHeight: 0, overflow: "hidden", padding: 0 } }}
+                  styles={{ body: { flex: 1, minHeight: 0, overflow: "auto", padding: 0 } }}
                   extra={
                     <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={load}>
                       Refresh
@@ -297,7 +297,7 @@ export default function TopicDetail() {
                     columns={partitionColumns}
                     dataSource={detail?.partitions ?? []}
                     pagination={false}
-                    scroll={{ y: "max(200px, calc(100vh - 360px))" }}
+                    sticky
                   />
                 </Card>
               ),
@@ -309,7 +309,7 @@ export default function TopicDetail() {
                 <Card
                   size="small"
                   style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
-                  styles={{ body: { flex: 1, minHeight: 0, overflow: "hidden", padding: 0 } }}
+                  styles={{ body: { flex: 1, minHeight: 0, overflow: "auto", padding: 0 } }}
                   extra={
                     <Space>
                       <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={load}>
@@ -339,7 +339,7 @@ export default function TopicDetail() {
                     columns={configColumns}
                     dataSource={detail?.configs ?? []}
                     pagination={false}
-                    scroll={{ y: "max(200px, calc(100vh - 360px))" }}
+                    sticky
                   />
                 </Card>
               ),
@@ -360,7 +360,7 @@ export default function TopicDetail() {
               key: "consumer-groups",
               label: "Consumer Groups",
               children: (
-                <div style={{ height: "max(200px, calc(100vh - 360px))", overflow: "auto" }}>
+                <div style={{ maxHeight: "max(200px, calc(100vh - 360px))", overflow: "auto" }}>
                   <TopicConsumerGroups
                     clusterId={currentClusterId}
                     topic={topicName}

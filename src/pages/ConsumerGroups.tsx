@@ -137,7 +137,7 @@ export default function ConsumerGroups() {
     <Card
       title="Consumer Groups"
       style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
-      styles={{ body: { flex: 1, minHeight: 0, overflow: "hidden", padding: 0 } }}
+      styles={{ body: { flex: 1, minHeight: 0, overflow: "auto", padding: 0 } }}
       extra={
         <Space>
           <Input
@@ -161,7 +161,7 @@ export default function ConsumerGroups() {
         dataSource={filtered}
         loading={loading}
         pagination={false}
-        scroll={{ y: "max(200px, calc(100vh - 200px))" }}
+        sticky
         expandable={{
           onExpand: (expanded, record) => {
             if (expanded) void loadDetail(record.group_id);

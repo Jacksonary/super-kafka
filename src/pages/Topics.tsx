@@ -166,7 +166,7 @@ export default function Topics() {
   }
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <Space style={{ marginBottom: 12, width: "100%", justifyContent: "space-between", flexShrink: 0 }}>
         <Input
           allowClear
@@ -186,25 +186,27 @@ export default function Topics() {
         </Space>
       </Space>
 
-      <Table<TopicSummary>
-        size="small"
-        rowKey="name"
-        dataSource={filtered}
-        columns={columns}
-        loading={loading}
-        pagination={{
-          defaultPageSize: 20,
-          showSizeChanger: true,
-          pageSizeOptions: [10, 20, 50],
-          showLessItems: true,
-          showQuickJumper: true,
-          showTotal: (total) => `Total ${total}`,
-        }}
-        locale={{
-          emptyText: <Empty description="No topics" />,
-        }}
-        scroll={{ y: "max(200px, calc(100vh - 220px))" }}
-      />
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <Table<TopicSummary>
+          size="small"
+          rowKey="name"
+          dataSource={filtered}
+          columns={columns}
+          loading={loading}
+          sticky
+          pagination={{
+            defaultPageSize: 20,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50],
+            showLessItems: true,
+            showQuickJumper: true,
+            showTotal: (total) => `Total ${total}`,
+          }}
+          locale={{
+            emptyText: <Empty description="No topics" />,
+          }}
+        />
+      </div>
 
       <Modal
         title="Create Topic"

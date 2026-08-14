@@ -45,6 +45,7 @@ export default function TopicConsumerGroups({ clusterId, topic, partitionCount }
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [partitions, setPartitions] = useState<Record<string, PartitionLag[]>>({});
   const [loadingParts, setLoadingParts] = useState<Record<string, boolean>>({});
+  const [removingGroup, setRemovingGroup] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<{
     group: TopicConsumerGroup;
     /** undefined = reset all partitions */
@@ -162,12 +163,15 @@ export default function TopicConsumerGroups({ clusterId, topic, partitionCount }
                   okButtonProps={{ danger: true }}
                   disabled={!canAct}
                   onConfirm={async () => {
+                    setRemovingGroup(g.group_id);
                     try {
                       await api.deleteTopicGroupOffsets(clusterId, topic, g.group_id);
                       message.success(`Removed ${g.group_id} from ${topic}`);
                       void loadGroups();
                     } catch (e) {
                       message.error(String(e));
+                    } finally {
+                      setRemovingGroup(null);
                     }
                   }}
                 >
@@ -175,6 +179,7 @@ export default function TopicConsumerGroups({ clusterId, topic, partitionCount }
                     size="small"
                     icon={<DisconnectOutlined />}
                     disabled={!canAct}
+                    loading={removingGroup === g.group_id}
                   />
                 </Popconfirm>
               </span>

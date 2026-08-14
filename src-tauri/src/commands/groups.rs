@@ -220,7 +220,8 @@ pub async fn delete_topic_group_offsets(
         .get_config(&cluster_id)
         .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
-    let timeout_ms = cluster.request_timeout_ms as i32;
+    // Clamp to i32::MAX (~24 days) to avoid sign-flip in librdkafka C API
+    let timeout_ms = i32::try_from(cluster.request_timeout_ms).unwrap_or(30_000);
     let pool = state.pool.clone();
 
     tokio::task::spawn_blocking(move || -> Result<Value, String> {
@@ -264,14 +265,13 @@ pub async fn delete_topic_group_offsets(
             return Err("[KAFKA-DELETE-OFFSETS] failed to allocate admin options".to_string());
         }
 
-        // Set request timeout on the options; ignore the (rarely non-null) error string
-        let mut err_buf = [0i8; 256];
+        // Set request timeout; pass null for errstr — failure here is not actionable
         unsafe {
             rdsys::rd_kafka_AdminOptions_set_request_timeout(
                 opts,
                 timeout_ms,
-                err_buf.as_mut_ptr(),
-                err_buf.len(),
+                std::ptr::null_mut(),
+                0,
             );
         }
 
@@ -327,6 +327,8 @@ pub async fn delete_topic_group_offsets(
                 let mut errors: Vec<String> = Vec::new();
                 for i in 0..cnt {
                     let gr = unsafe { *groups.add(i) };
+
+                    // Check group-level error (e.g. NON_EMPTY_GROUP)
                     let err_ptr = unsafe { rdsys::rd_kafka_group_result_error(gr) };
                     if !err_ptr.is_null() {
                         let code = unsafe { rdsys::rd_kafka_error_code(err_ptr) };
@@ -342,6 +344,25 @@ pub async fn delete_topic_group_offsets(
                                 }
                             };
                             errors.push(msg);
+                            continue; // partition errors are moot when group-level failed
+                        }
+                    }
+
+                    // Check per-partition errors (e.g. UNKNOWN_TOPIC_OR_PARTITION)
+                    let tpl_ptr = unsafe { rdsys::rd_kafka_group_result_partitions(gr) };
+                    if !tpl_ptr.is_null() {
+                        let part_cnt = unsafe { (*tpl_ptr).cnt } as usize;
+                        let elems = unsafe { (*tpl_ptr).elems };
+                        for j in 0..part_cnt {
+                            let elem = unsafe { &*elems.add(j) };
+                            if elem.err
+                                != rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR_NO_ERROR
+                            {
+                                errors.push(format!(
+                                    "partition {}: {:?}",
+                                    elem.partition, elem.err
+                                ));
+                            }
                         }
                     }
                 }

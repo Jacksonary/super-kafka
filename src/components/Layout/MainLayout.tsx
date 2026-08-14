@@ -109,12 +109,27 @@ export default function MainLayout() {
           try {
             await pendingUpdateRef.current.install();
           } catch (e) {
-            void antMessage.error(`Install failed: ${String(e)}`);
+            Modal.error({
+              title: "Update installation failed",
+              content: (
+                <>
+                  <p>{String(e)}</p>
+                  <p>Please quit and reopen the app to try again, or download the latest version manually.</p>
+                </>
+              ),
+            });
             return;
           }
         }
         try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
-        void relaunch();
+        try {
+          await relaunch();
+        } catch (e) {
+          Modal.error({
+            title: "Restart failed",
+            content: "The update was installed successfully but the app could not restart automatically. Please quit and reopen the app to apply the update.",
+          });
+        }
       },
       onCancel: () => {
         modalOpenRef.current = false;
@@ -186,7 +201,12 @@ export default function MainLayout() {
         });
         await upd.install();
         try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
-        void relaunch();
+        try {
+          await relaunch();
+        } catch {
+          setUpdateState({ status: "ready" });
+          showRestartModal(upd.version ?? "");
+        }
       } catch (e) {
         // Don't trap the user in a failing upgrade loop — clear the flag and
         // fall back to the normal in-app update prompt.

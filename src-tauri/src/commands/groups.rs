@@ -8,7 +8,9 @@ use crate::AppState;
 use rdkafka::admin::AdminOptions;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
+use rdkafka::bindings as rdsys;
 use serde_json::{json, Value};
+use std::ffi::CString;
 use std::time::Duration;
 use tauri::State;
 
@@ -200,6 +202,172 @@ pub async fn delete_consumer_group(
         }
     }
     Ok(json!({ "ok": true }))
+}
+
+/// Delete all committed offsets for a consumer group on a specific topic.
+///
+/// Equivalent to the Kafka `DeleteConsumerGroupOffsets` admin API (KIP-496).
+/// The group must be Empty or Dead; an active group returns an error from the broker.
+#[tauri::command]
+pub async fn delete_topic_group_offsets(
+    state: State<'_, AppState>,
+    cluster_id: String,
+    topic: String,
+    group_id: String,
+) -> Result<Value, String> {
+    let cluster = state
+        .pool
+        .get_config(&cluster_id)
+        .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
+    let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+    let timeout_ms = cluster.request_timeout_ms as i32;
+    let pool = state.pool.clone();
+
+    tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        let bundle = pool.get_or_create(&cluster_id)?;
+
+        // Fetch topic partition count
+        let meta = bundle
+            .admin
+            .inner()
+            .fetch_metadata(Some(&topic), timeout)
+            .map_err(|e| format!("[KAFKA-METADATA] {e}"))?;
+        let partition_count = meta
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic.as_str())
+            .map(|t| t.partitions().len())
+            .ok_or_else(|| format!("[KAFKA-METADATA] topic `{topic}` not found"))?;
+
+        // Build TopicPartitionList covering every partition of the topic
+        let mut tpl = TopicPartitionList::new();
+        for p in 0..partition_count as i32 {
+            tpl.add_partition(&topic, p);
+        }
+
+        let native_ptr = bundle.admin.inner().native_ptr();
+
+        // Allocate a private queue so results don't mix with the admin client's queue
+        let queue = unsafe { rdsys::rd_kafka_queue_new(native_ptr) };
+        if queue.is_null() {
+            return Err("[KAFKA-DELETE-OFFSETS] failed to allocate queue".to_string());
+        }
+
+        let opts = unsafe {
+            rdsys::rd_kafka_AdminOptions_new(
+                native_ptr,
+                rdsys::rd_kafka_admin_op_t::RD_KAFKA_ADMIN_OP_DELETECONSUMERGROUPOFFSETS,
+            )
+        };
+        if opts.is_null() {
+            unsafe { rdsys::rd_kafka_queue_destroy(queue) };
+            return Err("[KAFKA-DELETE-OFFSETS] failed to allocate admin options".to_string());
+        }
+
+        // Set request timeout on the options; ignore the (rarely non-null) error string
+        let mut err_buf = [0i8; 256];
+        unsafe {
+            rdsys::rd_kafka_AdminOptions_set_request_timeout(
+                opts,
+                timeout_ms,
+                err_buf.as_mut_ptr(),
+                err_buf.len(),
+            );
+        }
+
+        let group_c = CString::new(group_id.as_str())
+            .map_err(|e| format!("[KAFKA-DELETE-OFFSETS] invalid group id: {e}"))?;
+        let grpoffsets = unsafe {
+            rdsys::rd_kafka_DeleteConsumerGroupOffsets_new(
+                group_c.as_ptr(),
+                tpl.ptr() as *const _,
+            )
+        };
+        if grpoffsets.is_null() {
+            unsafe {
+                rdsys::rd_kafka_AdminOptions_destroy(opts);
+                rdsys::rd_kafka_queue_destroy(queue);
+            }
+            return Err("[KAFKA-DELETE-OFFSETS] failed to create operation object".to_string());
+        }
+
+        // Submit the request
+        let mut grpoffsets_arr = [grpoffsets];
+        unsafe {
+            rdsys::rd_kafka_DeleteConsumerGroupOffsets(
+                native_ptr,
+                grpoffsets_arr.as_mut_ptr(),
+                1,
+                opts,
+                queue,
+            );
+        }
+
+        // Block until the result event arrives (add 5 s of buffer over the request timeout)
+        let poll_ms = timeout_ms.saturating_add(5_000);
+        let event = unsafe { rdsys::rd_kafka_queue_poll(queue, poll_ms) };
+
+        let result = if event.is_null() {
+            Err("[KAFKA-DELETE-OFFSETS] timed out waiting for broker response".to_string())
+        } else {
+            let event_type = unsafe { rdsys::rd_kafka_event_type(event) };
+            if event_type != rdsys::RD_KAFKA_EVENT_DELETECONSUMERGROUPOFFSETS_RESULT {
+                Err(format!(
+                    "[KAFKA-DELETE-OFFSETS] unexpected event type {event_type}"
+                ))
+            } else {
+                let res_ptr = unsafe {
+                    rdsys::rd_kafka_event_DeleteConsumerGroupOffsets_result(event)
+                };
+                let mut cnt: usize = 0;
+                let groups = unsafe {
+                    rdsys::rd_kafka_DeleteConsumerGroupOffsets_result_groups(res_ptr, &mut cnt)
+                };
+
+                let mut errors: Vec<String> = Vec::new();
+                for i in 0..cnt {
+                    let gr = unsafe { *groups.add(i) };
+                    let err_ptr = unsafe { rdsys::rd_kafka_group_result_error(gr) };
+                    if !err_ptr.is_null() {
+                        let code = unsafe { rdsys::rd_kafka_error_code(err_ptr) };
+                        if code != rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR_NO_ERROR {
+                            let str_ptr = unsafe { rdsys::rd_kafka_error_string(err_ptr) };
+                            let msg = if str_ptr.is_null() {
+                                format!("error {code:?}")
+                            } else {
+                                unsafe {
+                                    std::ffi::CStr::from_ptr(str_ptr)
+                                        .to_string_lossy()
+                                        .into_owned()
+                                }
+                            };
+                            errors.push(msg);
+                        }
+                    }
+                }
+
+                if errors.is_empty() {
+                    Ok(json!({ "ok": true }))
+                } else {
+                    Err(format!("[KAFKA-DELETE-OFFSETS] {}", errors.join("; ")))
+                }
+            }
+        };
+
+        // Cleanup
+        unsafe {
+            if !event.is_null() {
+                rdsys::rd_kafka_event_destroy(event);
+            }
+            rdsys::rd_kafka_DeleteConsumerGroupOffsets_destroy(grpoffsets);
+            rdsys::rd_kafka_AdminOptions_destroy(opts);
+            rdsys::rd_kafka_queue_destroy(queue);
+        }
+
+        result
+    })
+    .await
+    .map_err(|e| format!("[RUNTIME] join: {e}"))?
 }
 
 /// `fetch_watermarks` with the error propagated instead of swallowed.

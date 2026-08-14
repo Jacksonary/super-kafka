@@ -92,6 +92,7 @@ pub fn run() {
             commands::groups::list_consumer_groups,
             commands::groups::get_consumer_group_detail,
             commands::groups::delete_consumer_group,
+            commands::groups::delete_topic_group_offsets,
             commands::groups::reset_offset,
             commands::groups::list_topic_consumer_groups,
             commands::groups::get_topic_group_partition_lag,

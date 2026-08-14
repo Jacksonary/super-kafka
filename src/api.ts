@@ -251,6 +251,15 @@ export const api = {
     return { ok: r.ok ?? true };
   },
 
+  async deleteTopicGroupOffsets(clusterId: string, topic: string, groupId: string) {
+    const r = await tauriInvoke<{ ok?: boolean }>("delete_topic_group_offsets", {
+      clusterId,
+      topic,
+      groupId,
+    });
+    return { ok: r.ok ?? true };
+  },
+
   async resetOffset(req: T.ResetOffsetRequest) {
     const r = await tauriInvoke<{
       ok?: boolean;

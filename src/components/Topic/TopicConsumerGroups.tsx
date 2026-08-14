@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Empty,
+  Popconfirm,
   Space,
   Spin,
   Table,
@@ -12,7 +13,7 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { DisconnectOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { api } from "../../api";
 import type { ConsumerGroupState, PartitionLag, TopicConsumerGroup } from "../../types";
@@ -123,30 +124,59 @@ export default function TopicConsumerGroups({ clusterId, topic, partitionCount }
     {
       title: "",
       key: "action",
-      width: 120,
+      width: 160,
       align: "center",
       render: (_: unknown, g: TopicConsumerGroup) => {
-        const canReset = g.state === "Empty" || g.state === "Dead";
+        const canAct = g.state === "Empty" || g.state === "Dead";
+        const disabledTip = "Group must be Empty/Dead — stop its consumers first";
         return (
           <Space size={4} onClick={(e) => e.stopPropagation()}>
-            <Tooltip
-              title={
-                canReset
-                  ? "Reset all partitions"
-                  : "Group must be Empty/Dead to reset — stop its consumers first"
-              }
-            >
+            <Tooltip title={canAct ? "Reset all partitions" : disabledTip}>
               {/* A disabled <button> swallows mouse events, so the Tooltip needs
                   a live wrapper to hang its listeners on. */}
-              <span style={{ display: "inline-block", cursor: canReset ? undefined : "not-allowed" }}>
+              <span style={{ display: "inline-block", cursor: canAct ? undefined : "not-allowed" }}>
                 <Button
                   size="small"
                   danger
-                  disabled={!canReset}
+                  disabled={!canAct}
                   onClick={() => setResetTarget({ group: g })}
                 >
                   Reset All
                 </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={canAct ? "Remove from this topic" : disabledTip}>
+              <span style={{ display: "inline-block", cursor: canAct ? undefined : "not-allowed" }}>
+                <Popconfirm
+                  title="Remove consumer group from this topic?"
+                  description={
+                    <>
+                      This will permanently delete all committed offsets for
+                      <br />
+                      <b>{g.group_id}</b> on this topic.
+                      <br />
+                      The group can re-subscribe in the future.
+                    </>
+                  }
+                  okText="Remove"
+                  okButtonProps={{ danger: true }}
+                  disabled={!canAct}
+                  onConfirm={async () => {
+                    try {
+                      await api.deleteTopicGroupOffsets(clusterId, topic, g.group_id);
+                      message.success(`Removed ${g.group_id} from ${topic}`);
+                      void loadGroups();
+                    } catch (e) {
+                      message.error(String(e));
+                    }
+                  }}
+                >
+                  <Button
+                    size="small"
+                    icon={<DisconnectOutlined />}
+                    disabled={!canAct}
+                  />
+                </Popconfirm>
               </span>
             </Tooltip>
             <Tooltip title="Refresh this group">

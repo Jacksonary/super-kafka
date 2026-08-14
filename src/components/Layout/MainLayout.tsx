@@ -202,12 +202,18 @@ export default function MainLayout() {
   }, [location.pathname]);
 
   // ── Status color ──
+  // "Degraded" = cluster is reachable but some brokers failed the TCP probe.
+  const isDegraded = useMemo(() => {
+    if (currentSummary?.status !== "connected") return false;
+    const { broker_count, online_broker_count } = currentSummary;
+    return broker_count != null && online_broker_count != null && online_broker_count < broker_count;
+  }, [currentSummary]);
+
   const statusColor = useMemo(() => {
-    if (connecting) return "#faad14";
     if (currentSummary?.status === "error") return "#ff4d4f";
-    if (currentSummary?.status === "connected") return "#52c41a";
+    if (currentSummary?.status === "connected") return isDegraded ? "#faad14" : "#52c41a";
     return "#8c8c8c";
-  }, [currentSummary?.status, connecting]);
+  }, [currentSummary?.status, isDegraded]);
 
   const [clusterDropdownOpen, setClusterDropdownOpen] = useState(false);
 
@@ -367,7 +373,7 @@ export default function MainLayout() {
                 />
               </div>
             </Dropdown>
-            {/* Error and connecting states shown below the selector */}
+            {/* Error, degraded and connecting states shown below the selector */}
             {!connecting && currentSummary?.status === "error" && currentSummary.error_message && (
               <Tooltip title={currentSummary.error_message}>
                 <Text
@@ -386,8 +392,13 @@ export default function MainLayout() {
                 </Text>
               </Tooltip>
             )}
-            {connecting && (
+            {!connecting && isDegraded && (
               <Text style={{ display: "block", marginTop: 2, paddingLeft: 10, fontSize: 11, color: "#faad14" }}>
+                {currentSummary?.online_broker_count}/{currentSummary?.broker_count} brokers online
+              </Text>
+            )}
+            {connecting && (
+              <Text style={{ display: "block", marginTop: 2, paddingLeft: 10, fontSize: 11, color: token.colorTextTertiary }}>
                 Connecting...
               </Text>
             )}
@@ -561,6 +572,19 @@ export default function MainLayout() {
             action={
               <Button size="small" type="link" onClick={() => void refreshCurrentSummary()}>
                 Reconnect
+              </Button>
+            }
+          />
+        )}
+        {!connecting && isDegraded && (
+          <Alert
+            banner
+            type="warning"
+            showIcon
+            message={`${currentSummary?.online_broker_count}/${currentSummary?.broker_count} brokers online — some brokers are unreachable`}
+            action={
+              <Button size="small" type="link" onClick={() => void refreshCurrentSummary()}>
+                Refresh
               </Button>
             }
           />

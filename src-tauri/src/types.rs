@@ -29,6 +29,7 @@ pub struct ClusterSummary {
     pub bootstrap_servers: String,
     pub status: String,
     pub broker_count: Option<u32>,
+    pub online_broker_count: Option<u32>,
     pub kafka_version: Option<String>,
     pub error_message: Option<String>,
 }
@@ -38,6 +39,7 @@ pub struct BrokerInfo {
     pub id: i32,
     pub host: String,
     pub port: i32,
+    pub is_online: bool,
 }
 
 #[derive(Debug, Serialize)]

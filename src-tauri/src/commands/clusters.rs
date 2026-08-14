@@ -1,8 +1,10 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::State;
 use tokio::time::timeout as tokio_timeout;
 
+use crate::cluster_pool::ClusterPool;
 use crate::config;
 use crate::kafka_client::create_bundle;
 use crate::types::{BrokerInfo, ClusterConfig, ClusterSummary, TestConnectionResult};
@@ -69,6 +71,58 @@ async fn fetch_produce_api_max_version(addr: &str, timeout: Duration) -> Option<
         }
     }
     None
+}
+
+/// Probe whether a broker's TCP endpoint is reachable within `timeout`.
+/// This only checks connectivity (TCP handshake), not the Kafka protocol —
+/// good enough to distinguish "broker gone" from "broker present".
+async fn probe_broker_online(addr: &str, timeout: Duration) -> bool {
+    use tokio::net::TcpStream;
+    tokio_timeout(timeout, TcpStream::connect(addr))
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false)
+}
+
+/// Fetch broker metadata for `cluster_id` and TCP-probe each broker's reachability.
+async fn fetch_brokers_with_health(
+    pool: Arc<ClusterPool>,
+    cluster_id: String,
+    timeout: Duration,
+    probe_timeout: Duration,
+) -> Result<Vec<BrokerInfo>, String> {
+    let raw_brokers = tokio::task::spawn_blocking(move || -> Result<Vec<(i32, String, i32)>, String> {
+        let bundle = pool.get_or_create(&cluster_id)?;
+        let meta = bundle
+            .admin
+            .inner()
+            .fetch_metadata(None, timeout)
+            .map_err(|e| format!("[KAFKA-METADATA] {e}"))?;
+
+        Ok(meta
+            .brokers()
+            .iter()
+            .map(|b| (b.id(), b.host().to_string(), b.port()))
+            .collect())
+    })
+    .await
+    .map_err(|e| format!("[RUNTIME] join: {e}"))??;
+
+    let probe_handles: Vec<_> = raw_brokers
+        .iter()
+        .map(|(_, host, port)| {
+            let addr = format!("{host}:{port}");
+            tokio::spawn(async move { probe_broker_online(&addr, probe_timeout).await })
+        })
+        .collect();
+
+    let mut brokers = Vec::with_capacity(raw_brokers.len());
+    for ((id, host, port), handle) in raw_brokers.into_iter().zip(probe_handles) {
+        let is_online = handle.await.unwrap_or(false);
+        brokers.push(BrokerInfo { id, host, port, is_online });
+    }
+
+    Ok(brokers)
 }
 
 /// Map Produce API max version to a Kafka version range.
@@ -251,39 +305,34 @@ pub async fn get_cluster_summary(
 
     let first_broker = bs.split(',').next().unwrap_or("").trim().to_string();
 
-    let meta_task = tokio::task::spawn_blocking(move || match pool.get_or_create(&id) {
-        Ok(bundle) => match bundle.admin.inner().fetch_metadata(None, timeout) {
-            Ok(meta) => Ok((meta.brokers().len() as u32, None::<String>)),
-            Err(e) => Err(format!("[KAFKA-METADATA] {e}")),
-        },
-        Err(e) => Err(e),
-    });
-
+    let health_task = fetch_brokers_with_health(pool, id, timeout, probe_timeout);
     let version_task = fetch_produce_api_max_version(&first_broker, probe_timeout);
 
-    let (meta_result, produce_ver) = tokio::join!(
-        async { meta_task.await.map_err(|e| format!("[RUNTIME] join: {e}")) },
-        version_task
-    );
-    let meta_result = meta_result?;
+    let (health_result, produce_ver) = tokio::join!(health_task, version_task);
     let kafka_version = produce_ver.map(|v| produce_version_to_kafka(v).to_string());
 
-    let summary = match meta_result {
-        Ok((broker_count, _)) => ClusterSummary {
-            id: cluster_id,
-            name,
-            bootstrap_servers: bs,
-            status: "connected".to_string(),
-            broker_count: Some(broker_count),
-            kafka_version,
-            error_message: None,
-        },
+    let summary = match health_result {
+        Ok(brokers) => {
+            let broker_count = brokers.len() as u32;
+            let online_broker_count = brokers.iter().filter(|b| b.is_online).count() as u32;
+            ClusterSummary {
+                id: cluster_id,
+                name,
+                bootstrap_servers: bs,
+                status: "connected".to_string(),
+                broker_count: Some(broker_count),
+                online_broker_count: Some(online_broker_count),
+                kafka_version,
+                error_message: None,
+            }
+        }
         Err(e) => ClusterSummary {
             id: cluster_id,
             name,
             bootstrap_servers: bs,
             status: "error".to_string(),
             broker_count: None,
+            online_broker_count: None,
             kafka_version: None,
             error_message: Some(e),
         },
@@ -292,8 +341,9 @@ pub async fn get_cluster_summary(
     Ok(summary)
 }
 
-/// Lightweight heartbeat check — reuses the existing connection pool, no TCP re-probe,
-/// no version detection. Returns a minimal ClusterSummary suitable for background polling.
+/// Lightweight heartbeat check — reuses the existing connection pool, no version detection.
+/// Still TCP-probes each broker so degraded clusters (some brokers unreachable) surface
+/// during background polling, not just on the initial full summary fetch.
 #[tauri::command]
 pub async fn ping_cluster(
     state: State<'_, AppState>,
@@ -304,27 +354,22 @@ pub async fn ping_cluster(
         .get_config(&cluster_id)
         .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+    let probe_timeout = timeout.min(Duration::from_secs(5));
     let name = cluster.name.clone();
     let bs = cluster.bootstrap_servers.clone();
     let pool = state.pool.clone();
-    let id = cluster_id.clone();
 
-    let result = tokio::task::spawn_blocking(move || match pool.get_or_create(&id) {
-        Ok(bundle) => match bundle.admin.inner().fetch_metadata(None, timeout) {
-            Ok(meta) => Ok(meta.brokers().len() as u32),
-            Err(e) => Err(format!("[KAFKA-METADATA] {e}")),
-        },
-        Err(e) => Err(e),
-    })
-    .await
-    .map_err(|e| format!("[RUNTIME] join: {e}"))??;
+    let brokers = fetch_brokers_with_health(pool, cluster_id.clone(), timeout, probe_timeout).await?;
+    let broker_count = brokers.len() as u32;
+    let online_broker_count = brokers.iter().filter(|b| b.is_online).count() as u32;
 
     Ok(ClusterSummary {
         id: cluster_id,
         name,
         bootstrap_servers: bs,
         status: "connected".to_string(),
-        broker_count: Some(result),
+        broker_count: Some(broker_count),
+        online_broker_count: Some(online_broker_count),
         kafka_version: None, // preserved from last full get_cluster_summary
         error_message: None,
     })
@@ -340,29 +385,7 @@ pub async fn list_brokers(
         .get_config(&cluster_id)
         .ok_or_else(|| format!("[CONFIG] cluster `{cluster_id}` not found"))?;
     let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
-    let pool = state.pool.clone();
-    let id = cluster_id.clone();
+    let probe_timeout = timeout.min(Duration::from_secs(5));
 
-    let brokers = tokio::task::spawn_blocking(move || -> Result<Vec<BrokerInfo>, String> {
-        let bundle = pool.get_or_create(&id)?;
-        let meta = bundle
-            .admin
-            .inner()
-            .fetch_metadata(None, timeout)
-            .map_err(|e| format!("[KAFKA-METADATA] {e}"))?;
-
-        Ok(meta
-            .brokers()
-            .iter()
-            .map(|b| BrokerInfo {
-                id: b.id(),
-                host: b.host().to_string(),
-                port: b.port(),
-            })
-            .collect())
-    })
-    .await
-    .map_err(|e| format!("[RUNTIME] join: {e}"))??;
-
-    Ok(brokers)
+    fetch_brokers_with_health(state.pool.clone(), cluster_id, timeout, probe_timeout).await
 }

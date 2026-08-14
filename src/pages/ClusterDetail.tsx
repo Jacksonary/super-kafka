@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  Badge,
   Breadcrumb,
   Button,
   Card,
@@ -120,6 +121,15 @@ export default function ClusterDetail() {
     { title: "ID", dataIndex: "id", key: "id", width: 100 },
     { title: "Host", dataIndex: "host", key: "host" },
     { title: "Port", dataIndex: "port", key: "port", width: 120 },
+    {
+      title: "Status",
+      dataIndex: "is_online",
+      key: "is_online",
+      width: 100,
+      render: (isOnline: boolean) => (
+        <Badge status={isOnline ? "success" : "error"} text={isOnline ? "Online" : "Offline"} />
+      ),
+    },
   ];
 
   return (

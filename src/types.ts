@@ -37,6 +37,7 @@ export interface ClusterSummary {
   bootstrap_servers: string;
   status: "connected" | "disconnected" | "connecting" | "error";
   broker_count: number | null;
+  online_broker_count: number | null;
   kafka_version: string | null;
   error_message: string | null;
 }
@@ -47,6 +48,7 @@ export interface BrokerInfo {
   id: number;
   host: string;
   port: number;
+  is_online: boolean;
 }
 
 // ── Topic ─────────────────────────────────────────────────

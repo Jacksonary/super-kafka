@@ -94,6 +94,7 @@ export function ClusterStoreProvider({ children }: { children: React.ReactNode }
         bootstrap_servers: clustersRef.current.find((c) => c.id === currentClusterId)?.bootstrap_servers ?? "",
         status: "error",
         broker_count: null,
+        online_broker_count: null,
         kafka_version: null,
         error_message: e instanceof Error ? e.message : String(e),
       });

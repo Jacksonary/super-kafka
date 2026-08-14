@@ -283,22 +283,23 @@ export default function TopicDetail() {
               children: (
                 <Card
                   size="small"
-                  style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
-                  styles={{ body: { flex: 1, minHeight: 0, overflow: "auto", padding: 0 } }}
+                  styles={{ body: { padding: 0 } }}
                   extra={
                     <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={load}>
                       Refresh
                     </Button>
                   }
                 >
-                  <Table<PartitionInfo>
-                    rowKey="partition_id"
-                    size="small"
-                    columns={partitionColumns}
-                    dataSource={detail?.partitions ?? []}
-                    pagination={false}
-                    sticky
-                  />
+                  <div style={{ maxHeight: "max(200px, calc(100vh - 360px))", overflow: "auto" }}>
+                    <Table<PartitionInfo>
+                      rowKey="partition_id"
+                      size="small"
+                      columns={partitionColumns}
+                      dataSource={detail?.partitions ?? []}
+                      pagination={false}
+                      sticky
+                    />
+                  </div>
                 </Card>
               ),
             },
@@ -308,8 +309,7 @@ export default function TopicDetail() {
               children: (
                 <Card
                   size="small"
-                  style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
-                  styles={{ body: { flex: 1, minHeight: 0, overflow: "auto", padding: 0 } }}
+                  styles={{ body: { padding: 0 } }}
                   extra={
                     <Space>
                       <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={load}>
@@ -333,14 +333,16 @@ export default function TopicDetail() {
                     </Space>
                   }
                 >
-                  <Table<TopicConfig>
-                    rowKey="name"
-                    size="small"
-                    columns={configColumns}
-                    dataSource={detail?.configs ?? []}
-                    pagination={false}
-                    sticky
-                  />
+                  <div style={{ maxHeight: "max(200px, calc(100vh - 360px))", overflow: "auto" }}>
+                    <Table<TopicConfig>
+                      rowKey="name"
+                      size="small"
+                      columns={configColumns}
+                      dataSource={detail?.configs ?? []}
+                      pagination={false}
+                      sticky
+                    />
+                  </div>
                 </Card>
               ),
             },

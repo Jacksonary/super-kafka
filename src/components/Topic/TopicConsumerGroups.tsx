@@ -13,7 +13,7 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { DisconnectOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { api } from "../../api";
 import type { ConsumerGroupState, PartitionLag, TopicConsumerGroup } from "../../types";
@@ -177,7 +177,7 @@ export default function TopicConsumerGroups({ clusterId, topic, partitionCount }
                 >
                   <Button
                     size="small"
-                    icon={<DisconnectOutlined />}
+                    icon={<DeleteOutlined />}
                     disabled={!canAct}
                     loading={removingGroup === g.group_id}
                   />

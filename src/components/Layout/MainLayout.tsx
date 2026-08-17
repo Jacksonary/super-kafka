@@ -101,7 +101,7 @@ export default function MainLayout() {
       content: version
         ? `Version ${version} has been downloaded. Restart now to apply the update, or continue working and restart later.`
         : `An update has been downloaded. Restart now to apply it, or continue working and restart later.`,
-      okText: "Restart now",
+      okText: "Restart Now",
       cancelText: "Later",
       onOk: async () => {
         modalOpenRef.current = false;

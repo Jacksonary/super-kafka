@@ -119,7 +119,7 @@ export default function ClusterDetail() {
 
   const brokerColumns: ColumnsType<BrokerInfo> = [
     { title: "ID", dataIndex: "id", key: "id", width: 100 },
-    { title: "Host", dataIndex: "host", key: "host" },
+    { title: "Host", dataIndex: "host", key: "host", width: 200 },
     { title: "Port", dataIndex: "port", key: "port", width: 120 },
     {
       title: "Status",
@@ -195,6 +195,7 @@ export default function ClusterDetail() {
               columns={brokerColumns}
               dataSource={brokers}
               pagination={false}
+              scroll={{ x: "max-content" }}
             />
           )}
         </Card>

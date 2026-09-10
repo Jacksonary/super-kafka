@@ -1,8 +1,9 @@
 use crate::config;
 use crate::kafka_client::build_client_config;
 use crate::types::{
-    ExportColumn, ExportProgress, ExportRequest, FetchMessagesRequest, FetchMessagesResponse,
-    KafkaMessage, MessageHeader, ProduceMessageRequest,
+    ClusterConfig, ExportColumn, ExportProgress, ExportRequest, FetchMessagesRequest,
+    FetchMessagesResponse, KafkaMessage, MessageHeader, ProduceMessageRequest, SearchProgress,
+    SearchSummary,
 };
 use crate::{AppState, LiveSession};
 use std::fs::File;
@@ -13,12 +14,15 @@ use rdkafka::message::{Header, Headers, Message, OwnedHeaders, Timestamp};
 use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// 全量检索最多返回的命中条数(超出即强制停止;前端同步提示该上限)。
+const MAX_SEARCH_HITS: i64 = 5_000;
 
 #[tauri::command]
 pub async fn fetch_messages(
@@ -522,6 +526,534 @@ pub async fn stop_live_consume(
     session_id: String,
 ) -> Result<(), String> {
     if let Some(session) = state.live_sessions.lock().remove(&session_id) {
+        session.running.store(false, Ordering::Release);
+    }
+    Ok(())
+}
+
+// ── 全量检索 ──────────────────────────────────────────────
+
+/// ASCII 大小写不敏感的子串匹配(零分配)。
+/// 非 ASCII 字节按原样比较:中文等无大小写语义的文本照常匹配,但不再做
+/// Unicode 大小写折叠(原实现对 É/é 这类非 ASCII 大小写变体可匹配,现在不会)。
+fn str_contains_ci(haystack: &str, needle_lower: &str) -> bool {
+    let h = haystack.as_bytes();
+    let n = needle_lower.as_bytes();
+    if n.is_empty() || h.len() < n.len() {
+        return false;
+    }
+    h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
+}
+
+/// 在原始 bytes 上做命中判定:UTF-8 校验零分配,不做拷贝/JSON 探测。
+/// 只有命中后才走 `borrowed_to_kafka_message` 做完整转换。
+fn raw_matches(key: Option<&[u8]>, payload: &[u8], query_lower: &str) -> bool {
+    if query_lower.is_empty() {
+        return false;
+    }
+    if let Some(k) = key.and_then(|b| std::str::from_utf8(b).ok()) {
+        if str_contains_ci(k, query_lower) {
+            return true;
+        }
+    }
+    if let Ok(v) = std::str::from_utf8(payload) {
+        if str_contains_ci(v, query_lower) {
+            return true;
+        }
+    }
+    false
+}
+
+/// 单个扫描 worker(一个分区组)的结果。
+struct ScanCounts {
+    hits: i64,
+    scanned: i64,
+}
+
+/// 在给定分区组内扫描:一个 consumer 负责该组,组内共享 poll 循环。
+/// 命中即经 `hits_channel` 推给前端;达到全局命中上限或"首个命中"条件时
+/// 置 `cancel`,让其余 worker 一并退出。
+#[allow(clippy::too_many_arguments)]
+fn scan_partition_group(
+    cluster: &ClusterConfig,
+    password: Option<&str>,
+    topic: &str,
+    fetch_mode: &Value,
+    partitions: &[i32],
+    query_lower: &str,
+    stop_after_first: bool,
+    limit: i64,
+    no_limit: bool,
+    user_running: &AtomicBool,
+    cancel: &AtomicBool,
+    global_hits: &AtomicI64,
+    global_scanned: &AtomicI64,
+    global_total: &AtomicI64,
+    hits_channel: &tauri::ipc::Channel<KafkaMessage>,
+) -> Result<ScanCounts, String> {
+    let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+
+    let mut cfg = build_client_config(cluster, password);
+    cfg.set(
+        "group.id",
+        format!("super-kafka-search-{}", uuid::Uuid::new_v4()),
+    );
+    cfg.set("enable.auto.commit", "false");
+    // 与 fetch/live/export 保持一致:内容视图用 read_committed。
+    cfg.set("isolation.level", "read_committed");
+
+    let consumer: BaseConsumer = cfg
+        .create()
+        .map_err(|e| format!("[KAFKA-CONSUMER] create: {e}"))?;
+
+    let fetch_type = fetch_mode.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let end_ms: Option<i64> = fetch_mode.get("end_ms").and_then(|v| v.as_i64());
+
+    let mut partition_high: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+    // time_range 模式下,每分区到 end_ms 对应 offset 即停(精确终止,不依赖空 poll 猜测 EOF)。
+    let mut end_offsets: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+    // 进度用:本组每分区的起点与终点快照,用于预先算出本组要扫的总条数。
+    let mut start_of: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+    let mut high_snapshot: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+    let mut tpl = TopicPartitionList::new();
+
+    if fetch_type == "from_timestamp" {
+        let timestamp_ms = fetch_mode
+            .get("timestamp")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| "[KAFKA] from_timestamp requires timestamp field".to_string())?;
+        let timed_offsets =
+            resolve_offsets_for_timestamp(&consumer, topic, partitions, timestamp_ms, timeout)?;
+        for (p, start_offset, high) in timed_offsets {
+            tpl.add_partition_offset(topic, p, Offset::Offset(start_offset))
+                .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+            start_of.insert(p, start_offset);
+            high_snapshot.insert(p, high);
+            if high > start_offset {
+                partition_high.insert(p, high);
+            }
+        }
+    } else {
+        for &p in partitions {
+            let (low, high) = consumer
+                .fetch_watermarks(topic, p, timeout)
+                .map_err(|e| format!("[KAFKA-WATERMARK] partition {p}: {e}"))?;
+            // No limit 下的 Latest 失去"往回倒 N 条"的边界,按扫到最早处理。
+            let offset = if no_limit && fetch_mode.get("type").and_then(|v| v.as_str()) == Some("latest")
+            {
+                Offset::Beginning
+            } else {
+                decide_offset(fetch_mode, low, high, limit as i32, partitions.len() as i64)?
+            };
+            tpl.add_partition_offset(topic, p, offset)
+                .map_err(|e| format!("[KAFKA] tpl: {e}"))?;
+            let start = match offset {
+                Offset::Beginning => low,
+                Offset::Offset(o) => o,
+                _ => low,
+            };
+            start_of.insert(p, start);
+            high_snapshot.insert(p, high);
+            if high > start {
+                partition_high.insert(p, high);
+            }
+        }
+    }
+
+    if partition_high.is_empty() {
+        return Ok(ScanCounts { hits: 0, scanned: 0 });
+    }
+
+    consumer
+        .assign(&tpl)
+        .map_err(|e| format!("[KAFKA-CONSUMER] assign: {e}"))?;
+
+    // time_range 模式下,用 offsets_for_times(end_ms) 求本组每分区"时间=end 的首条 offset"
+    // 作为扫描上界,使结束点由时间边界决定,而非依赖空 poll 猜测 EOF。
+    if let Some(end) = end_ms {
+        let mut etpl = TopicPartitionList::new();
+        for &p in partitions {
+            let _ = etpl.add_partition_offset(topic, p, Offset::Offset(end));
+        }
+        if let Ok(res) = consumer.offsets_for_times(etpl, timeout) {
+            for elem in res.elements() {
+                if elem.error().is_err() {
+                    continue;
+                }
+                if let Some(o) = elem.offset().to_raw().filter(|&o| o >= 0) {
+                    end_offsets.insert(elem.partition(), o);
+                }
+            }
+        }
+    }
+
+    // 预先累加本组扫描总条数到全局计数器(进度条分母)。
+    // 终点优先取 end_offsets(time_range 的时间边界),否则取高水位。
+    {
+        let mut group_total: i64 = 0;
+        for &p in partitions {
+            let start = start_of.get(&p).copied();
+            let end = end_offsets
+                .get(&p)
+                .copied()
+                .or_else(|| high_snapshot.get(&p).copied());
+            if let (Some(s), Some(e)) = (start, end) {
+                if e > s {
+                    group_total += e - s;
+                }
+            }
+        }
+        global_total.fetch_add(group_total, Ordering::Relaxed);
+    }
+
+    let mut hits: i64 = 0;
+    let mut scanned: i64 = 0;
+    let mut idle_polls = 0usize;
+    let started = std::time::Instant::now();
+    // 首条消息到达前允许更长的等待窗口防连接卡死。
+    // 注意:空 poll 不代表 EOF(消费快于拉取时会出现短暂空窗),结束由
+    // end_offsets/高水位这些"确定边界"判定;空 poll 仅作空转兜底。
+    let startup_deadline = timeout.max(Duration::from_secs(15));
+
+    loop {
+        if !user_running.load(Ordering::Acquire) || cancel.load(Ordering::Acquire) {
+            break;
+        }
+        match consumer.poll(POLL_TIMEOUT) {
+            Some(Ok(m)) => {
+                idle_polls = 0;
+                let next_offset = m.offset() + 1;
+                let p = m.partition();
+                let high = partition_high.get(&p).copied().unwrap_or(0);
+
+                // 时间范围上界(精确终止):
+                // - 到达该分区 end_ms 对应的 end_offset => 扫完窗口,停止该分区;
+                // - 仍在 end_offset 之前但本条时间戳越界(乱序) => 跳过本条但不终止分区。
+                if let Some(end_bound) = end_offsets.get(&p).copied() {
+                    if next_offset > end_bound {
+                        partition_high.remove(&p);
+                        if partition_high.is_empty() {
+                            break;
+                        }
+                        continue;
+                    }
+                    if let Some(end) = end_ms {
+                        let msg_ts = match m.timestamp() {
+                            Timestamp::CreateTime(ts) => Some(ts),
+                            Timestamp::LogAppendTime(ts) => Some(ts),
+                            _ => None,
+                        };
+                        if let Some(ts) = msg_ts {
+                            if ts > end {
+                                // 时间超窗但仍在本分区窗口内:跳过,继续扫乱序的窗内消息
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                scanned += 1;
+                let global_scanned_now = global_scanned.fetch_add(1, Ordering::Relaxed) + 1;
+                // 扫描条数上限(全局):No limit 时跳过,否则扫满 limit 条全体停止。
+                if !no_limit && global_scanned_now >= limit {
+                    cancel.store(true, Ordering::Release);
+                    break;
+                }
+                // 先匹配后转换:非命中消息不拷贝 value、不做 UTF-8/JSON 解码。
+                if raw_matches(m.key(), m.payload().unwrap_or(&[]), query_lower) {
+                    let msg = borrowed_to_kafka_message(&m);
+                    if hits_channel.send(msg).is_err() {
+                        // 前端已关闭/导航离开 -> 停止所有 worker
+                        cancel.store(true, Ordering::Release);
+                        break;
+                    }
+                    hits += 1;
+                    let total = global_hits.fetch_add(1, Ordering::AcqRel) + 1;
+                    // 检索最多支持 MAX_SEARCH_HITS 条命中,超出强制停止(前端同样提示)。
+                    if stop_after_first || total >= MAX_SEARCH_HITS {
+                        cancel.store(true, Ordering::Release);
+                        break;
+                    }
+                }
+
+                // 消费到该分区 high watermark 后不再追踪。
+                if next_offset >= high {
+                    partition_high.remove(&p);
+                    if partition_high.is_empty() {
+                        break;
+                    }
+                }
+            }
+            Some(Err(KafkaError::MessageConsumption(RDKafkaErrorCode::NotImplemented))) => {}
+            Some(Err(e)) => return Err(format!("[KAFKA-CONSUMER] poll: {e}")),
+            None => {
+                if scanned > 0 {
+                    idle_polls += 1;
+                    // 长时间完全空闲且无任何分区到界(几乎不应发生)才兜底退出
+                    if idle_polls >= 120 {
+                        break;
+                    }
+                } else if started.elapsed() > startup_deadline {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(ScanCounts { hits, scanned })
+}
+
+/// 全量检索:按 `req` 界定的范围扫描 topic,命中经 `hits_channel` 流式推回前端。
+/// 多分区时按分区组分片并行(每 worker 独立 consumer + 线程),因此命中到达顺序
+/// 与分区推进速度相关,不保证全局有序。
+fn search_messages_scan(
+    cluster: &ClusterConfig,
+    password: Option<&str>,
+    req: &FetchMessagesRequest,
+    query_lower: &str,
+    stop_after_first: bool,
+    no_limit: bool,
+    running: &AtomicBool,
+    hits_channel: &tauri::ipc::Channel<KafkaMessage>,
+    progress_channel: &tauri::ipc::Channel<SearchProgress>,
+) -> SearchSummary {
+    let timeout = Duration::from_millis(cluster.request_timeout_ms as u64);
+    // limit 语义:最多扫描的条数(No limit 时忽略)。
+    let limit = req.limit.max(1).min(10_000) as i64;
+
+    // 统一构造 summary,并附带整段扫描的实际耗时(前端 toast 展示)。
+    let started = std::time::Instant::now();
+    let mk_summary =
+        |hits: i64, scanned: i64, reason: &str, error: Option<String>| SearchSummary {
+            hits,
+            scanned,
+            reason: reason.to_string(),
+            error,
+            elapsed_ms: started.elapsed().as_millis() as i64,
+        };
+
+    // 用一个临时 consumer 只取分区列表;实际扫描由各 worker 自建 consumer。
+    let mut cfg = build_client_config(cluster, password);
+    cfg.set(
+        "group.id",
+        format!("super-kafka-search-meta-{}", uuid::Uuid::new_v4()),
+    );
+    cfg.set("enable.auto.commit", "false");
+    cfg.set("isolation.level", "read_committed");
+    let probe: BaseConsumer = match cfg.create() {
+        Ok(c) => c,
+        Err(e) => {
+            return mk_summary(
+                0,
+                0,
+                "error",
+                Some(format!("[KAFKA-CONSUMER] create: {e}")),
+            )
+        }
+    };
+    let target_partitions: Vec<i32> = match req.partition {
+        Some(p) => vec![p],
+        None => {
+            let meta = match probe.fetch_metadata(Some(&req.topic), timeout) {
+                Ok(m) => m,
+                Err(e) => {
+                    return mk_summary(0, 0, "error", Some(format!("[KAFKA-METADATA] {e}")))
+                }
+            };
+            match meta.topics().iter().find(|t| t.name() == req.topic) {
+                Some(t) => t.partitions().iter().map(|p| p.id()).collect(),
+                None => {
+                    return mk_summary(
+                        0,
+                        0,
+                        "error",
+                        Some(format!("[KAFKA] topic `{}` not found", req.topic)),
+                    )
+                }
+            }
+        }
+    };
+    drop(probe);
+
+    if target_partitions.is_empty() {
+        return mk_summary(0, 0, "eof", None);
+    }
+
+    // 并行取消标志(任一 worker 达成终止条件时广播)与全局聚合计数。
+    // 计数用 Arc 共享给进度 reporter 线程,worker 借用同一份。
+    let cancel = AtomicBool::new(false);
+    let global_hits = Arc::new(AtomicI64::new(0));
+    let global_scanned = Arc::new(AtomicI64::new(0));
+    let global_total = Arc::new(AtomicI64::new(0));
+
+    // worker 数上限,避免分区过多时线程/连接爆炸;超出则轮转分组。
+    const MAX_WORKERS: usize = 16;
+    let groups: Vec<Vec<i32>> = if target_partitions.len() <= MAX_WORKERS {
+        target_partitions.iter().map(|&p| vec![p]).collect()
+    } else {
+        let mut g: Vec<Vec<i32>> = vec![Vec::new(); MAX_WORKERS];
+        for (i, &p) in target_partitions.iter().enumerate() {
+            g[i % MAX_WORKERS].push(p);
+        }
+        g.retain(|v| !v.is_empty());
+        g
+    };
+
+    let outcomes: Vec<Result<ScanCounts, String>> = std::thread::scope(|s| {
+        // 进度 reporter:唯一上报者,周期读取聚合原子计数推给前端,保证进度单调无乱序。
+        // workers 全部 join 后置 finished,reporter 在下一轮(≤200ms)推完最后一帧退出。
+        let finished = Arc::new(AtomicBool::new(false));
+        let finished_reporter = finished.clone();
+        let (scanned_r, total_r, hits_r) =
+            (global_scanned.clone(), global_total.clone(), global_hits.clone());
+        s.spawn(move || {
+            let report_started = std::time::Instant::now();
+            loop {
+                std::thread::sleep(Duration::from_millis(200));
+                let _ = progress_channel.send(SearchProgress {
+                    scanned: scanned_r.load(Ordering::Relaxed),
+                    total: total_r.load(Ordering::Relaxed),
+                    hits: hits_r.load(Ordering::Relaxed),
+                    elapsed_ms: report_started.elapsed().as_millis() as i64,
+                });
+                if finished_reporter.load(Ordering::Acquire) {
+                    break;
+                }
+            }
+        });
+
+        let handles: Vec<_> = groups
+            .iter()
+            .map(|partitions| {
+                s.spawn(|| {
+                    scan_partition_group(
+                        cluster,
+                        password,
+                        &req.topic,
+                        &req.fetch_mode,
+                        partitions,
+                        query_lower,
+                        stop_after_first,
+                        limit,
+                        no_limit,
+                        running,
+                        &cancel,
+                        &global_hits,
+                        &global_scanned,
+                        &global_total,
+                        hits_channel,
+                    )
+                })
+            })
+            .collect();
+        let outcomes: Vec<Result<ScanCounts, String>> = handles
+            .into_iter()
+            .map(|h| match h.join() {
+                Ok(r) => r,
+                Err(_) => Err("[SEARCH] worker panicked".to_string()),
+            })
+            .collect();
+        finished.store(true, Ordering::Release);
+        outcomes
+    });
+
+    let mut hits: i64 = 0;
+    let mut scanned: i64 = 0;
+    let mut first_err: Option<String> = None;
+    for o in outcomes {
+        match o {
+            Ok(c) => {
+                hits += c.hits;
+                scanned += c.scanned;
+            }
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+    }
+
+    let reason = if first_err.is_some() {
+        "error"
+    } else if !running.load(Ordering::Acquire) {
+        "stopped_by_user"
+    } else if stop_after_first && hits > 0 {
+        "first_match"
+    } else if hits >= MAX_SEARCH_HITS {
+        "hit_cap"
+    } else if !no_limit && scanned >= limit {
+        "limit"
+    } else {
+        "eof"
+    };
+
+    mk_summary(hits, scanned, reason, first_err)
+}
+
+#[tauri::command]
+pub async fn start_search_consume(
+    state: State<'_, AppState>,
+    req: FetchMessagesRequest,
+    session_id: String,
+    query: String,
+    stop_after_first: bool,
+    no_limit: bool,
+    hits_channel: tauri::ipc::Channel<KafkaMessage>,
+    done_channel: tauri::ipc::Channel<SearchSummary>,
+    progress_channel: tauri::ipc::Channel<SearchProgress>,
+) -> Result<(), String> {
+    let cluster = state
+        .pool
+        .get_config(&req.cluster_id)
+        .ok_or_else(|| format!("[CONFIG] cluster `{}` not found", req.cluster_id))?;
+    let query_lower = query.trim().to_lowercase();
+    if query_lower.is_empty() {
+        return Err("[SEARCH] query is empty".to_string());
+    }
+
+    // 停掉同 session_id 的旧实例（前端重连场景）
+    if let Some(old) = state.search_sessions.lock().remove(&session_id) {
+        old.running.store(false, Ordering::Release);
+    }
+
+    let running = Arc::new(AtomicBool::new(true));
+    let running_for_thread = running.clone();
+    let sessions = state.search_sessions.clone();
+    let session_id_for_removal = session_id.clone();
+
+    let handle = std::thread::spawn(move || {
+        let password = config::load_sasl_password(&req.cluster_id).ok().flatten();
+        let summary = search_messages_scan(
+            &cluster,
+            password.as_deref(),
+            &req,
+            &query_lower,
+            stop_after_first,
+            no_limit,
+            &running_for_thread,
+            &hits_channel,
+            &progress_channel,
+        );
+        let _ = done_channel.send(summary);
+        // 线程自行移除条目，避免 map 残留已死会话。
+        sessions.lock().remove(&session_id_for_removal);
+    });
+
+    state
+        .search_sessions
+        .lock()
+        .insert(session_id, LiveSession { running, handle });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_search_consume(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    if let Some(session) = state.search_sessions.lock().remove(&session_id) {
         session.running.store(false, Ordering::Release);
     }
     Ok(())

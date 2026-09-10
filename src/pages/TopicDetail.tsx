@@ -187,7 +187,16 @@ export default function TopicDetail() {
 
   return (
     <Spin spinning={loading} wrapperClassName="topic-detail-spin">
-      <Space direction="vertical" size={16} style={{ width: "100%", flex: 1, minHeight: 0, display: "flex" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+          width: "100%",
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
         <Space style={{ flexShrink: 0 }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/topics")}>
             Back
@@ -373,7 +382,7 @@ export default function TopicDetail() {
             },
           ]}
         />
-      </Space>
+      </div>
 
       <PartitionsEditModal
         open={partitionsModalOpen}

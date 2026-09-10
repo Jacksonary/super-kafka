@@ -150,6 +150,31 @@ pub struct ExportProgress {
     pub error: Option<String>,
 }
 
+/// Completion summary for a full-range message search, sent once over the
+/// done channel when the scan thread finishes.
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchSummary {
+    pub hits: i64,
+    pub scanned: i64,
+    /// "stopped_by_user" | "eof" | "limit" | "first_match" | "error"
+    pub reason: String,
+    pub error: Option<String>,
+    /// Wall-clock duration of the whole scan, in milliseconds.
+    pub elapsed_ms: i64,
+}
+
+/// Periodic progress snapshot pushed over the progress channel while a search
+/// scan is running. `total` is the pre-computed scan volume (sum over
+/// partitions of end_offset - start_offset), so `scanned / total` is a real
+/// percentage rather than an estimate.
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchProgress {
+    pub scanned: i64,
+    pub total: i64,
+    pub hits: i64,
+    pub elapsed_ms: i64,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ProduceMessageRequest {
     pub cluster_id: String,

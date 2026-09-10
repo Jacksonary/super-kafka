@@ -35,18 +35,22 @@ function mapEncoding(v: unknown): T.MessageEncoding {
   return "text";
 }
 
+function normalizeKafkaMessage(raw: T.KafkaMessage): T.KafkaMessage {
+  return {
+    ...raw,
+    timestamp_type: mapTimestampType(raw.timestamp_type),
+    value_encoding: mapEncoding(raw.value_encoding),
+    headers: (raw.headers ?? []).map((h) => ({
+      key: h.key,
+      value: h.value ?? null,
+    })),
+  };
+}
+
 function mapFetchMessagesResponse(raw: T.FetchMessagesResponse): T.FetchMessagesResponse {
   return {
     ...raw,
-    messages: raw.messages.map((m) => ({
-      ...m,
-      timestamp_type: mapTimestampType(m.timestamp_type),
-      value_encoding: mapEncoding(m.value_encoding),
-      headers: (m.headers ?? []).map((h) => ({
-        key: h.key,
-        value: h.value ?? null,
-      })),
-    })),
+    messages: raw.messages.map(normalizeKafkaMessage),
   };
 }
 
@@ -195,14 +199,7 @@ export const api = {
   ) {
     const { Channel } = await import("@tauri-apps/api/core");
     const ch = new Channel<T.KafkaMessage>();
-    ch.onmessage = (raw) => {
-      onMessage({
-        ...raw,
-        timestamp_type: mapTimestampType(raw.timestamp_type),
-        value_encoding: mapEncoding(raw.value_encoding),
-        headers: (raw.headers ?? []).map((h) => ({ key: h.key, value: h.value ?? null })),
-      });
-    };
+    ch.onmessage = (raw) => onMessage(normalizeKafkaMessage(raw));
     await tauriInvoke<void>("start_live_consume", {
       req: { ...req, fetch_mode: toBackendFetchMode(req.fetch_mode) },
       sessionId,
@@ -213,6 +210,46 @@ export const api = {
 
   async stopLiveConsume(sessionId: string) {
     await tauriInvoke<void>("stop_live_consume", { sessionId });
+  },
+
+  /**
+   * 全量检索：在 fetch_mode 界定的范围内扫描 topic，命中的消息经
+   * hitsChannel 流式推回，扫描结束时 doneChannel 收到一次 SearchSummary。
+   * 扫描中 progressChannel 周期推送进度(scanned/total/hits)。
+   * 返回三个 channel，调用方需持有引用防止 GC；停止用 stopSearch。
+   */
+  async startSearch(
+    req: T.FetchMessagesRequest,
+    query: string,
+    stopAfterFirst: boolean,
+    noLimit: boolean,
+    sessionId: string,
+    onHit: (msg: T.KafkaMessage) => void,
+    onDone: (summary: T.SearchSummary) => void,
+    onProgress: (p: T.SearchProgress) => void,
+  ) {
+    const { Channel } = await import("@tauri-apps/api/core");
+    const hitsChannel = new Channel<T.KafkaMessage>();
+    hitsChannel.onmessage = (raw) => onHit(normalizeKafkaMessage(raw));
+    const doneChannel = new Channel<T.SearchSummary>();
+    doneChannel.onmessage = (s) => onDone(s);
+    const progressChannel = new Channel<T.SearchProgress>();
+    progressChannel.onmessage = (p) => onProgress(p);
+    await tauriInvoke<void>("start_search_consume", {
+      req: { ...req, fetch_mode: toBackendFetchMode(req.fetch_mode) },
+      sessionId,
+      query,
+      stopAfterFirst,
+      noLimit,
+      hitsChannel,
+      doneChannel,
+      progressChannel,
+    });
+    return { hitsChannel, doneChannel, progressChannel };
+  },
+
+  async stopSearch(sessionId: string) {
+    await tauriInvoke<void>("stop_search_consume", { sessionId });
   },
 
   /**

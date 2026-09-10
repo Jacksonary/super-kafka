@@ -157,6 +157,25 @@ export interface ExportProgress {
   error: string | null;
 }
 
+/** 全量检索结束时 backend 通过 done channel 发送一次的扫描摘要。 */
+export interface SearchSummary {
+  hits: number;
+  scanned: number;
+  /** hit_cap = 命中达到 5000 条上限被强制停止。 */
+  reason: "stopped_by_user" | "eof" | "limit" | "first_match" | "hit_cap" | "error";
+  error: string | null;
+  /** 整段扫描耗时(毫秒)。 */
+  elapsed_ms: number;
+}
+
+/** 扫描进行中的周期进度(每 ~200ms 一帧)。total 为预先算出的扫描总量。 */
+export interface SearchProgress {
+  scanned: number;
+  total: number;
+  hits: number;
+  elapsed_ms: number;
+}
+
 export type CompressionCodec = "none" | "gzip" | "snappy" | "lz4" | "zstd";
 
 export interface ProduceMessageRequest {

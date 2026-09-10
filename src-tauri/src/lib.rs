@@ -24,6 +24,9 @@ pub struct AppState {
     pub live_sessions: Mutex<HashMap<String, LiveSession>>,
     /// Cancel flags for in-flight export tasks, keyed by session_id.
     pub export_sessions: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Running full-range search scans, keyed by session_id. Wrapped in Arc so
+    /// the scan thread can remove its own entry when it finishes.
+    pub search_sessions: Arc<Mutex<HashMap<String, LiveSession>>>,
     pub app_config: parking_lot::Mutex<AppConfig>,
 }
 
@@ -65,6 +68,7 @@ pub fn run() {
             pool,
             live_sessions: Mutex::new(HashMap::new()),
             export_sessions: Mutex::new(HashMap::new()),
+            search_sessions: Arc::new(Mutex::new(HashMap::new())),
             app_config: parking_lot::Mutex::new(app_config_init),
         })
         .invoke_handler(tauri::generate_handler![
@@ -87,6 +91,8 @@ pub fn run() {
             commands::messages::produce_message,
             commands::messages::start_live_consume,
             commands::messages::stop_live_consume,
+            commands::messages::start_search_consume,
+            commands::messages::stop_search_consume,
             commands::messages::export_messages,
             commands::messages::stop_export,
             commands::groups::list_consumer_groups,

@@ -5,10 +5,12 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   DatePicker,
   Form,
   Input,
   InputNumber,
+  Progress,
   Segmented,
   Select,
   Space,
@@ -18,12 +20,12 @@ import {
   Typography,
   App as AntdApp,
 } from "antd";
-import { DownloadOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { DownloadOutlined, LeftOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, RightOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
 import { api } from "../api";
 import { useClusterStore } from "../store/clusterStore";
-import type { FetchMode, KafkaMessage, TopicSummary } from "../types";
+import type { FetchMode, KafkaMessage, SearchProgress, SearchSummary, TopicSummary } from "../types";
 import { formatBytes, formatTimestamp, truncate } from "../utils/format";
 import MessageDetailDrawer from "../components/Message/MessageDetailDrawer";
 import ExportColumnsModal from "../components/Message/ExportColumnsModal";
@@ -64,13 +66,18 @@ export default function MessageBrowser({
   const [modeKind, setModeKind] = useState<FetchModeKind>("latest");
   const [fromOffset, setFromOffset] = useState<number>(0);
   const [timeRange, setTimeRange] = useState<[Dayjs, Dayjs] | null>(null);
-  const [limit, setLimit] = useState<number>(100);
+  // Limit 语义:Fetch = 最多拉取条数;Search = 最多扫描条数(勾 No limit 时忽略)。
+  const [limit, setLimit] = useState<number>(1000);
 
   const [messages, setMessages] = useState<KafkaMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [selected, setSelected] = useState<KafkaMessage | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // Table 表体滚动高度测量（定义在 filtered 之后，见下方 useTableScroll）。
 
   // Live mode state
   const [viewMode, setViewMode] = useState<ViewMode>("fetch");
@@ -80,6 +87,20 @@ export default function MessageBrowser({
   const liveChannelRef = useRef<unknown>(null);
   const liveRunningRef = useRef(false);
   useEffect(() => { liveRunningRef.current = liveRunning; }, [liveRunning]);
+
+  // Search (全量检索) state
+  const [searchRunning, setSearchRunning] = useState(false);
+  const [searchStopAfterFirst, setSearchStopAfterFirst] = useState(true);
+  const [searchNoLimit, setSearchNoLimit] = useState(false);
+  const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
+  const [searchQueryUsed, setSearchQueryUsed] = useState("");
+  const searchSessionIdRef = useRef<string | null>(null);
+  const searchChannelRef = useRef<Awaited<ReturnType<typeof api.startSearch>> | null>(null);
+  const searchRunningRef = useRef(false);
+  useEffect(() => { searchRunningRef.current = searchRunning; }, [searchRunning]);
+  // 命中批量追加:先攒在 ref,每 120ms flush 一次,避免 5k 条命中 O(n²) 逐条 setState。
+  const pendingHitsRef = useRef<KafkaMessage[]>([]);
+  const searchFlushTimerRef = useRef<number | null>(null);
 
   // Load topics for selector when not embedded
   useEffect(() => {
@@ -171,6 +192,111 @@ export default function MessageBrowser({
     }
   }, [currentClusterId, topic, partition, message]);
 
+  // 结束/停止时清理批量追加定时器，并把剩余命中一次性刷出。
+  const clearSearchFlush = useCallback(() => {
+    if (searchFlushTimerRef.current !== null) {
+      window.clearInterval(searchFlushTimerRef.current);
+      searchFlushTimerRef.current = null;
+    }
+    const leftover = pendingHitsRef.current;
+    if (leftover.length > 0) {
+      pendingHitsRef.current = [];
+      setMessages((prev) => [...prev, ...leftover]);
+    }
+  }, []);
+
+  const finishSearch = useCallback((sessionId: string, summary: SearchSummary) => {
+    // 旧会话保护：Stop 或重启后迟到的摘要直接丢弃
+    if (searchSessionIdRef.current !== sessionId) return;
+    searchSessionIdRef.current = null;
+    searchChannelRef.current = null;
+    clearSearchFlush();
+    setSearchRunning(false);
+    setSearchProgress(null);
+    const elapsed = `${(summary.elapsed_ms / 1000).toFixed(1)}s`;
+    if (summary.reason === "error") {
+      message.error(`Search failed in ${elapsed}: ${summary.error ?? "unknown error"}`);
+    } else if (summary.reason === "stopped_by_user") {
+      message.info(
+        `Search stopped in ${elapsed}: ${summary.hits} matched (scanned ${summary.scanned})`,
+      );
+    } else if (summary.reason === "hit_cap") {
+      message.warning(
+        `Search stopped at ${summary.hits} matched (scanned ${summary.scanned}, ${elapsed}) — search supports up to 5,000 results`,
+      );
+    } else {
+      message.success(
+        `Search finished in ${elapsed}: ${summary.hits} matched (scanned ${summary.scanned})`,
+      );
+    }
+  }, [message, clearSearchFlush]);
+
+  const stopSearch = useCallback(async () => {
+    const sid = searchSessionIdRef.current;
+    if (!sid) return;
+    searchSessionIdRef.current = null;
+    searchChannelRef.current = null;
+    clearSearchFlush();
+    setSearchRunning(false);
+    setSearchProgress(null);
+    try { await api.stopSearch(sid); } catch { /* ignore */ }
+  }, [clearSearchFlush]);
+
+  const handleSearch = useCallback(async () => {
+    if (!currentClusterId || !topic) {
+      message.warning("Select a topic first");
+      return;
+    }
+    const q = filterText.trim();
+    if (!q) {
+      message.warning("Enter a search query first");
+      return;
+    }
+    // 防重入 + 与 Fetch 互斥
+    if (searchSessionIdRef.current || searchRunningRef.current || loading) return;
+    const sessionId = crypto.randomUUID();
+    searchSessionIdRef.current = sessionId;
+    setSearchRunning(true);
+    setSearchQueryUsed(q);
+    setSearchProgress({ scanned: 0, total: 0, hits: 0, elapsed_ms: 0 });
+    setMessages([]); // 结果替换当前列表
+    setPage(1);
+    // 命中先攒进 ref，每 120ms 批量追加一次，避免逐条 setState 造成 O(n²) 卡顿。
+    pendingHitsRef.current = [];
+    searchFlushTimerRef.current = window.setInterval(() => {
+      const batch = pendingHitsRef.current;
+      if (batch.length === 0) return;
+      pendingHitsRef.current = [];
+      setMessages((prev) => [...prev, ...batch]);
+    }, 120);
+    try {
+      const chans = await api.startSearch(
+        { cluster_id: currentClusterId, topic, partition, fetch_mode: fetchMode, limit },
+        q,
+        searchStopAfterFirst,
+        searchNoLimit,
+        sessionId,
+        (msg) => {
+          // 旧会话保护：Stop 后的迟到命中不进入列表
+          if (searchSessionIdRef.current !== sessionId) return;
+          pendingHitsRef.current.push(msg);
+        },
+        (summary) => finishSearch(sessionId, summary),
+        (p) => {
+          if (searchSessionIdRef.current !== sessionId) return;
+          setSearchProgress(p);
+        },
+      );
+      searchChannelRef.current = chans; // 持有三 Channel，防止 GC 回收
+    } catch (e) {
+      message.error(`Search failed: ${String(e)}`);
+      clearSearchFlush();
+      setSearchRunning(false);
+      setSearchProgress(null);
+      searchSessionIdRef.current = null;
+    }
+  }, [currentClusterId, topic, partition, fetchMode, limit, filterText, searchStopAfterFirst, searchNoLimit, loading, message, finishSearch, clearSearchFlush]);
+
   // 组件卸载时停止
   useEffect(() => {
     return () => {
@@ -179,15 +305,29 @@ export default function MessageBrowser({
         liveSessionIdRef.current = null;
         void api.stopLiveConsume(sid);
       }
+      const ssid = searchSessionIdRef.current;
+      if (ssid) {
+        searchSessionIdRef.current = null;
+        void api.stopSearch(ssid);
+      }
+      // 清掉批量追加定时器，避免卸载后仍持有 state 更新
+      if (searchFlushTimerRef.current !== null) {
+        window.clearInterval(searchFlushTimerRef.current);
+        searchFlushTimerRef.current = null;
+      }
+      pendingHitsRef.current = [];
     };
   }, []);
 
-  // topic 或 cluster 切换时停止 live
+  // topic 或 cluster 切换时停止 live/search
   useEffect(() => {
     if (liveRunningRef.current) {
       void stopLive();
     }
-  }, [topic, currentClusterId, stopLive]);
+    if (searchRunningRef.current) {
+      void stopSearch();
+    }
+  }, [topic, currentClusterId, stopLive, stopSearch]);
 
 
   const filtered = useMemo(() => {
@@ -199,6 +339,53 @@ export default function MessageBrowser({
         (m.value_text ?? "").toLowerCase().includes(q),
     );
   }, [messages, filterText]);
+
+  // 分页数据：只切当前页（分页器独立于表格，pagination={false}）
+  const list = viewMode === "live" ? liveMessages : filtered;
+  // 搜索进度百分比：total 由后端预先算出（各分区 end_offset − start_offset 之和）
+  const searchPercent =
+    searchProgress && searchProgress.total > 0
+      ? Math.min(100, Math.round((searchProgress.scanned / searchProgress.total) * 100))
+      : 0;
+  // 进度数字区宽度按 total 动态计算(ch = 一个等宽数字的宽度):
+  // scanned 最大等于 total、hits 最大等于 limit(≤1000),据此算最大串长。
+  // 数字符按 1ch、非数字符(逗号/斜杠/空格/字母)按 ~0.5ch 加权,
+  // 避免固定宽度截断,也避免符号按 1ch 高估造成大段留白。
+  const progressTextWidth = useMemo(() => {
+    const totalStr = (searchProgress?.total ?? 0).toLocaleString();
+    const maxHits = Math.min(limit, 1000);
+    const template = `${totalStr} / ${totalStr} · ${maxHits.toLocaleString()} hits`;
+    let units = 0.5; // 收尾余量
+    for (const c of template) {
+      units += /\d/.test(c) ? 1 : 0.5;
+    }
+    return `${units.toFixed(1)}ch`;
+  }, [searchProgress?.total, limit]);
+  const maxPage = Math.max(1, Math.ceil(list.length / pageSize));
+  const safePage = Math.min(page, maxPage);
+  const pagedData = useMemo(
+    () => list.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [list, safePage, pageSize],
+  );
+
+  // Table 表体滚动高度（scroll.y = 容器高 − 表头高）。
+  // 分页器已移出滚动容器，无需再扣分页器高度。ResizeObserver 处理窗口/外层尺寸变化。
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const [tableScrollY, setTableScrollY] = useState<number>(400);
+  useEffect(() => {
+    const el = tableWrapRef.current;
+    if (!el) return;
+    const compute = () => {
+      const headerH =
+        el.querySelector<HTMLElement>(".ant-table-header")?.getBoundingClientRect().height ?? 0;
+      const y = Math.floor(el.clientHeight - headerH);
+      setTableScrollY(y > 0 ? y : 0);
+    };
+    compute();
+    const ro = new ResizeObserver(compute); // 处理窗口/外层尺寸变化
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [viewMode]);
 
   const columns: ColumnsType<KafkaMessage> = [
     { title: "Partition", dataIndex: "partition", width: 90, key: "partition" },
@@ -263,10 +450,15 @@ export default function MessageBrowser({
   })();
 
   return (
-    <Space
-      direction="vertical"
-      size={12}
-      style={embeddedTopic ? { width: "100%" } : { width: "100%", flex: 1, minHeight: 0 }}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        width: "100%",
+        flex: 1,
+        minHeight: 0,
+      }}
     >
       <Card size="small">
         <Space direction="vertical" size={8} style={{ width: "100%" }}>
@@ -276,6 +468,7 @@ export default function MessageBrowser({
             onChange={(v) => {
               const next = v as ViewMode;
               if (next === "fetch" && liveRunning) void stopLive();
+              if (next === "live" && searchRunning) void stopSearch();
               setViewMode(next);
             }}
             options={[
@@ -299,7 +492,7 @@ export default function MessageBrowser({
             )}
             <Form.Item label="Partition">
               <Select
-                style={{ width: 160 }}
+                style={{ width: 70 }}
                 value={partition ?? -1}
                 onChange={(v: number) => setPartition(v === -1 ? null : v)}
                 options={partitionOptions ?? [{ value: -1, label: "All" }]}
@@ -312,7 +505,7 @@ export default function MessageBrowser({
               <>
                 <Form.Item label="Mode">
                   <Select
-                    style={{ width: 160 }}
+                    style={{ width: 120 }}
                     value={modeKind}
                     onChange={setModeKind}
                     options={[
@@ -332,16 +525,29 @@ export default function MessageBrowser({
                   <Form.Item label="Range">
                     <RangePicker
                       showTime
+                      style={{ width: 365 }}
                       value={timeRange ?? undefined}
                       onChange={(r) => setTimeRange(r as [Dayjs, Dayjs] | null)}
                     />
                   </Form.Item>
                 )}
                 <Form.Item label="Limit">
-                  <InputNumber min={1} max={1000} value={limit} onChange={(v) => setLimit(v ?? 100)} />
+                  <InputNumber
+                    min={1}
+                    max={5000}
+                    value={limit}
+                    disabled={searchNoLimit}
+                    onChange={(v) => setLimit(v ?? 1000)}
+                  />
                 </Form.Item>
                 <Form.Item>
-                  <Button type="primary" icon={<ReloadOutlined />} loading={loading} onClick={handleFetch}>
+                  <Button
+                    type="primary"
+                    icon={<ReloadOutlined />}
+                    loading={loading}
+                    disabled={searchRunning}
+                    onClick={handleFetch}
+                  >
                     Fetch
                   </Button>
                 </Form.Item>
@@ -373,16 +579,76 @@ export default function MessageBrowser({
         </Space>
       </Card>
 
-      <Space style={{ width: "100%", justifyContent: "space-between" }}>
+      <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
         {viewMode === "fetch" ? (
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="Filter loaded messages by key/value"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            style={{ width: 360 }}
-          />
+          <Space wrap size={12}>
+            {searchRunning ? (
+              <>
+                {/* 搜索中：收起输入框，改为进度组（关键词 + 进度条 + 已扫/总量 + 命中） */}
+                <Badge status="processing" />
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 12, maxWidth: 160 }}
+                  ellipsis={{ tooltip: searchQueryUsed }}
+                >
+                  Searching “{searchQueryUsed}”
+                </Text>
+                <Progress
+                  percent={searchPercent}
+                  size="small"
+                  status="active"
+                  style={{ width: 140, margin: 0 }}
+                />
+                <Text
+                  type="secondary"
+                  style={{
+                    fontSize: 12,
+                    // 宽度由 total/limit 动态算出(ch),等宽数字;位数变化不推动后续元素
+                    display: "inline-block",
+                    width: progressTextWidth,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {(searchProgress?.scanned ?? 0).toLocaleString()} /{" "}
+                  {(searchProgress?.total ?? 0).toLocaleString()} · {searchProgress?.hits ?? 0} hits
+                </Text>
+                <Button danger icon={<PauseCircleOutlined />} onClick={stopSearch}>
+                  Stop
+                </Button>
+                <Checkbox checked={searchStopAfterFirst} disabled>
+                  Stop on first match
+                </Checkbox>
+              </>
+            ) : (
+              <>
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  placeholder="Filter / search messages by key/value"
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                  style={{ width: 320 }}
+                />
+                <Button icon={<SearchOutlined />} disabled={loading} onClick={handleSearch}>
+                  Search
+                </Button>
+                <Checkbox
+                  checked={searchStopAfterFirst}
+                  onChange={(e) => setSearchStopAfterFirst(e.target.checked)}
+                >
+                  Stop on first match
+                </Checkbox>
+                <Tooltip title="Ignore the Limit above and scan the whole range — can run for a long time on large topics">
+                  <Checkbox
+                    checked={searchNoLimit}
+                    onChange={(e) => setSearchNoLimit(e.target.checked)}
+                  >
+                    No limit
+                  </Checkbox>
+                </Tooltip>
+              </>
+            )}
+          </Space>
         ) : (
           <span />
         )}
@@ -394,34 +660,84 @@ export default function MessageBrowser({
           >
             Export CSV
           </Button>
-          <Text type="secondary">
-            {viewMode === "live"
-              ? `${liveMessages.length} messages (max ${LIVE_MAX_BUFFER})`
-              : `${filtered.length} / ${messages.length} messages`}
-          </Text>
         </Space>
       </Space>
 
-      <Table<KafkaMessage>
-        size="small"
-        rowKey={(m) => `${m.partition}-${m.offset}`}
-        columns={columns}
-        dataSource={viewMode === "live" ? liveMessages : filtered}
-        loading={viewMode === "fetch" ? loading : false}
-        pagination={{
-          defaultPageSize: 20,
-          showSizeChanger: true,
-          pageSizeOptions: [20, 50, 100],
-          showLessItems: true,
-          showQuickJumper: true,
-          showTotal: (total) => `Total ${total}`,
+      <div
+        ref={tableWrapRef}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: "hidden",
+          // antd wrapper 要撑满这个 flex 容器，scroll.y 才不再把分页器顶出视口
+          display: "flex",
+          flexDirection: "column",
         }}
-        onRow={(record) => ({
-          onClick: () => setSelected(record),
-          style: { cursor: "pointer" },
-        })}
-        scroll={{ x: 900, y: embeddedTopic ? "max(200px, calc(100vh - 540px))" : "max(200px, calc(100vh - 380px))" }}
-      />
+      >
+        <Table<KafkaMessage>
+          size="small"
+          rowKey={(m) => `${m.partition}-${m.offset}`}
+          columns={columns}
+          dataSource={pagedData}
+          loading={viewMode === "fetch" ? loading : false}
+          pagination={false}
+          onRow={(record) => ({
+            onClick: () => setSelected(record),
+            style: { cursor: "pointer" },
+          })}
+          scroll={{ x: 900, y: tableScrollY }}
+        />
+      </div>
+
+      {/* 独立分页器：放在滚动容器外，避免被 overflow:hidden 裁掉底部；极简文字风格，居中。
+          手写布局：总数在左，‹ 3/5 › 在中间，每页条数在右。 */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: 16,
+          flexShrink: 0,
+        }}
+      >
+        <Text type="secondary">
+          total {list.length}
+        </Text>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Button
+            type="text"
+            size="small"
+            icon={<LeftOutlined />}
+            disabled={safePage <= 1}
+            onClick={() => setPage(safePage - 1)}
+          />
+          <Text type="secondary">
+            {safePage} / {maxPage}
+          </Text>
+          <Button
+            type="text"
+            size="small"
+            icon={<RightOutlined />}
+            disabled={safePage >= maxPage}
+            onClick={() => setPage(safePage + 1)}
+          />
+        </span>
+        <Select
+          size="small"
+          variant="borderless"
+          value={pageSize}
+          style={{ width: 100 }}
+          onChange={(v) => {
+            setPageSize(v);
+            setPage(1);
+          }}
+          options={[
+            { value: 20, label: "20 / page" },
+            { value: 50, label: "50 / page" },
+            { value: 100, label: "100 / page" },
+          ]}
+        />
+      </div>
 
       <MessageDetailDrawer
         open={selected !== null}
@@ -442,6 +758,6 @@ export default function MessageBrowser({
         sampleMessages={viewMode === "live" ? liveMessages : filtered}
         onClose={() => setExportOpen(false)}
       />
-    </Space>
+    </div>
   );
 }

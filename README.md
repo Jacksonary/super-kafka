@@ -27,6 +27,7 @@ Built with [Tauri 2](https://v2.tauri.app/) + Rust + React. No Docker, no JVM, n
 - **Live mode**: real-time tail with subscription-based consumption (rolling 500-message buffer)
 - Per-message detail drawer: key, value, headers, encoding auto-detection (JSON pretty-print, base64 fallback for binary)
 - Filter loaded messages by key / value substring
+- **Full-range search**: scan the whole topic within the selected partition / fetch mode / limit range for a key/value substring, streaming matches into the table with a live progress bar and elapsed time; "Stop on first match" by default, optional "No limit" to scan the entire range (capped at 5,000 results)
 - Export the current view to CSV
 - Configurable max display size to keep huge payloads from clogging the UI
 

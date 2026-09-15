@@ -299,7 +299,17 @@ export default function MainLayout() {
               style={{ width: 32, height: 32, flexShrink: 0, display: "block" }}
             />
             {!collapsed && (
-              <Text strong style={{ color: token.colorPrimary, fontSize: 16, whiteSpace: "nowrap" }}>
+              <Text
+                strong
+                style={{
+                  // 产品名用中性色，不用主题主色 —— 主色是留给交互元素（按钮/链接/选中态）的，
+                  // 用在字标上会让它读起来像可点击的链接。colorTextHeading 会随明暗主题自适应。
+                  color: token.colorTextHeading,
+                  fontSize: 16,
+                  letterSpacing: "-0.02em",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 Super Kafka
               </Text>
             )}

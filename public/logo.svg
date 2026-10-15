@@ -1,0 +1,86 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- macOS 投影 -->
+    <filter id="dockShadow" x="30" y="30" width="964" height="974" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.45"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+
+    <!-- 背景底座黑曜石渐变 -->
+    <linearGradient id="bgGrad" x1="94" y1="94" x2="930" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#151C2C"/>
+      <stop offset="50%" stop-color="#0C101A"/>
+      <stop offset="100%" stop-color="#05070B"/>
+    </linearGradient>
+
+    <!-- 边缘微反光与高光倒角 -->
+    <linearGradient id="rimGrad" x1="94" y1="94" x2="930" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.6"/>
+      <stop offset="25%" stop-color="#818CF8" stop-opacity="0.3"/>
+      <stop offset="70%" stop-color="#1E293B" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.15"/>
+    </linearGradient>
+
+    <!-- Commit Log 消息分区块渐变 -->
+    <linearGradient id="logGrad" x1="280" y1="260" x2="380" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="50%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#0369A1"/>
+    </linearGradient>
+
+    <!-- 生产者喷流上折线渐变 (Producer Jet) -->
+    <linearGradient id="beamGrad" x1="430" y1="260" x2="750" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="60%" stop-color="#818CF8"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+
+    <!-- 消费者提取管道下折线渐变 (Consumer Warp) -->
+    <linearGradient id="streamGrad" x1="480" y1="520" x2="760" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="45%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+
+    <!-- 发光核心滤镜 -->
+    <filter id="coreGlow" x="200" y="200" width="624" height="624" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- macOS 标准 Squircle 容器 (836x836 占画布 81.6%，居中留白 94px) -->
+  <g filter="url(#dockShadow)">
+    <rect x="94" y="94" width="836" height="836" rx="188" fill="url(#bgGrad)"/>
+    <rect x="94" y="94" width="836" height="836" rx="188" stroke="url(#rimGrad)" stroke-width="4"/>
+  </g>
+
+  <!-- 背景暗纹与能量场 -->
+  <circle cx="560" cy="512" r="220" fill="#6366F1" opacity="0.14" filter="blur(60px)"/>
+  <circle cx="420" cy="512" r="160" fill="#00F2FE" opacity="0.1" filter="blur(45px)"/>
+
+  <!-- 主体结构：K 拓扑矢量 -->
+  <g filter="url(#coreGlow)">
+    <!-- 纵向 Commit Log 消息队列骨架 (3 段分流追加柱) -->
+    <rect x="290" y="260" width="64" height="120" rx="16" fill="url(#logGrad)"/>
+    <rect x="290" y="410" width="64" height="204" rx="16" fill="url(#logGrad)"/>
+    <rect x="290" y="644" width="64" height="120" rx="16" fill="url(#logGrad)"/>
+
+    <!-- 纵向数据流指示小圆点 -->
+    <circle cx="322" cy="320" r="10" fill="#FFFFFF"/>
+    <circle cx="322" cy="512" r="10" fill="#FFFFFF"/>
+    <circle cx="322" cy="704" r="10" fill="#FFFFFF"/>
+
+    <!-- 上分支：极速生产者注入光束 (Producer Jet) -->
+    <path d="M 400 472 L 558 324 C 578 304 612 304 634 324 L 726 416 C 742 432 731 460 708 460 L 580 460 C 564 460 548 468 538 480 L 400 622 Z"
+          fill="url(#beamGrad)" opacity="0.95"/>
+
+    <!-- 下分支：扩散消费者提取管道 (Consumer Warp) -->
+    <path d="M 494 532 L 698 728 C 716 746 746 734 746 708 L 746 620 C 746 606 738 592 728 582 L 598 460 C 584 446 562 450 550 466 L 494 532 Z"
+          fill="url(#streamGrad)"/>
+
+    <!-- 核心枢纽节点脉冲光球 -->
+    <circle cx="450" cy="512" r="26" fill="#FFFFFF"/>
+    <circle cx="450" cy="512" r="46" fill="#38BDF8" opacity="0.4" filter="blur(10px)"/>
+  </g>
+</svg>

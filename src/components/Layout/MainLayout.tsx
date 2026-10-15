@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import logoUrl from "../../assets/logo.png";
+import AppLogo from "../Common/AppLogo";
 import { Alert, Button, Dropdown, Layout, Menu, Modal, Progress, Tooltip, Typography, message as antMessage } from "antd";
 import { useClusterOrder } from "../../hooks/useClusterOrder";
 import {
@@ -293,11 +293,7 @@ export default function MainLayout() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10, overflow: "hidden" }}>
-            <img
-              src={logoUrl}
-              alt="logo"
-              style={{ width: 32, height: 32, flexShrink: 0, display: "block" }}
-            />
+            <AppLogo size={32} />
             {!collapsed && (
               <Text
                 strong

@@ -1,5 +1,9 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="./src-tauri/icons/icon.png" width="96" height="96" alt="Super Kafka Logo" />
+</p>
+
 # Super Kafka Desktop
 
 A cross-platform desktop client for Apache Kafka — manage clusters, browse topics, inspect messages, and produce / replay records, all without launching a terminal or a separate web UI.

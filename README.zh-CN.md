@@ -1,5 +1,9 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="./src-tauri/icons/icon.png" width="96" height="96" alt="Super Kafka Logo" />
+</p>
+
 # Super Kafka Desktop
 
 跨平台 Apache Kafka 桌面客户端 —— 集群管理、Topic 浏览、消息查看、消息生产 / 重放，全程图形化操作，无需启动终端或额外的 Web UI。
